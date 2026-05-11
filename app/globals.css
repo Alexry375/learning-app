@@ -421,9 +421,12 @@ html, body {
   /* Layout : centrer verticalement le body au milieu de la zone. */
   display: flex;
   align-items: center;
-  /* Padding gauche large : c'est ici que la ligne SVG démarre et
-     que le body commence après l'offset (`padding-left + line-width`). */
-  padding-left: clamp(3rem, 7vw, 6rem);
+  /* Padding gauche large : la ligne SVG occupe `clamp(3rem, 7vw, 6rem)`
+     depuis le bord gauche du `.mg-anno`. Le padding-left ici est plus
+     grand → un gap respirant sépare le marqueur du titre. (Itération
+     [00:21] : trait était collé au titre, on l'éloigne via un padding
+     supérieur à la longueur de la ligne.) */
+  padding-left: clamp(5.5rem, 12vw, 10rem);
   padding-right: clamp(1.5rem, 4vw, 4rem);
   /* Pas de background — c'est le point. */
   background: none;
