@@ -1,0 +1,888 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>CRYO — Igloo-inspired clone</title>
+<style>
+  :root {
+    --ice-0: #050810;
+    --ice-1: #0a1424;
+    --ice-cyan: #b8e6f5;
+    --ice-blue: #4d9eff;
+    --ice-white: #eaf6ff;
+    --accent: #7ddcff;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body {
+    background: var(--ice-0);
+    color: var(--ice-white);
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+    overflow-x: hidden;
+    overscroll-behavior: none;
+    cursor: none;
+  }
+  body { height: 400vh; }
+
+  /* === Canvas fixé en fond === */
+  #scene {
+    position: fixed;
+    inset: 0;
+    width: 100vw;
+    height: 100vh;
+    z-index: 0;
+  }
+
+  /* === Curseur custom === */
+  .cursor {
+    position: fixed;
+    top: 0; left: 0;
+    width: 24px;
+    height: 24px;
+    border: 1px solid var(--ice-cyan);
+    border-radius: 50%;
+    pointer-events: none;
+    transform: translate(-50%, -50%);
+    mix-blend-mode: difference;
+    z-index: 9999;
+    transition: width 0.2s, height 0.2s, border-color 0.2s;
+  }
+  .cursor.hover { width: 64px; height: 64px; border-color: var(--accent); }
+  .cursor-dot {
+    position: fixed;
+    top: 0; left: 0;
+    width: 4px; height: 4px;
+    background: var(--ice-white);
+    border-radius: 50%;
+    pointer-events: none;
+    transform: translate(-50%, -50%);
+    z-index: 9999;
+  }
+
+  /* === Loader plein écran === */
+  #loader {
+    position: fixed;
+    inset: 0;
+    background: var(--ice-0);
+    z-index: 100;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: opacity 1.5s ease, visibility 1.5s;
+  }
+  #loader.done { opacity: 0; visibility: hidden; }
+  .loader-text {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    letter-spacing: 0.3em;
+    color: var(--ice-cyan);
+    text-transform: uppercase;
+  }
+  .loader-bar {
+    width: 240px;
+    height: 1px;
+    background: rgba(184, 230, 245, 0.15);
+    margin-top: 24px;
+    position: relative;
+    overflow: hidden;
+  }
+  .loader-bar::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(90deg, transparent, var(--ice-cyan), transparent);
+    animation: loaderSweep 1.5s infinite;
+  }
+  @keyframes loaderSweep {
+    0% { transform: translateX(-100%); }
+    100% { transform: translateX(100%); }
+  }
+
+  /* === Sections de contenu === */
+  .content {
+    position: relative;
+    z-index: 2;
+    pointer-events: none;
+  }
+  .section {
+    height: 100vh;
+    width: 100vw;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    padding: 0 8vw;
+  }
+
+  /* HUD top */
+  .hud {
+    position: fixed;
+    top: 0; left: 0; right: 0;
+    padding: 24px 48px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    letter-spacing: 0.25em;
+    text-transform: uppercase;
+    z-index: 10;
+    color: var(--ice-cyan);
+    pointer-events: none;
+  }
+  .hud-left { display: flex; gap: 24px; align-items: center; }
+  .hud-dot {
+    width: 6px; height: 6px;
+    background: var(--accent);
+    border-radius: 50%;
+    box-shadow: 0 0 8px var(--accent);
+    animation: pulse 2s infinite;
+  }
+  @keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.3; }
+  }
+  .hud-right { display: flex; gap: 32px; }
+
+  /* HUD bottom */
+  .hud-bottom {
+    position: fixed;
+    bottom: 24px; left: 48px; right: 48px;
+    display: flex;
+    justify-content: space-between;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    letter-spacing: 0.2em;
+    color: rgba(184, 230, 245, 0.5);
+    z-index: 10;
+    pointer-events: none;
+  }
+  #fpsCounter { color: var(--ice-cyan); }
+
+  /* Typo titres */
+  h1, h2 {
+    font-family: 'Inter', sans-serif;
+    font-weight: 200;
+    line-height: 0.95;
+    letter-spacing: -0.02em;
+  }
+  h1 {
+    font-size: clamp(80px, 14vw, 220px);
+    text-transform: uppercase;
+    color: var(--ice-white);
+  }
+  h2 {
+    font-size: clamp(48px, 8vw, 120px);
+    color: var(--ice-white);
+  }
+  .label {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    letter-spacing: 0.3em;
+    text-transform: uppercase;
+    color: var(--ice-cyan);
+    margin-bottom: 24px;
+  }
+  .body-text {
+    font-size: 16px;
+    line-height: 1.6;
+    color: rgba(234, 246, 255, 0.7);
+    max-width: 520px;
+    margin-top: 32px;
+  }
+
+  /* Glitch effect sur titre */
+  .glitch {
+    position: relative;
+    display: inline-block;
+  }
+  .glitch::before, .glitch::after {
+    content: attr(data-text);
+    position: absolute;
+    top: 0; left: 0;
+    width: 100%;
+    overflow: hidden;
+  }
+  .glitch::before {
+    color: var(--ice-blue);
+    animation: glitchTop 4s infinite;
+    clip-path: polygon(0 0, 100% 0, 100% 33%, 0 33%);
+  }
+  .glitch::after {
+    color: var(--accent);
+    animation: glitchBot 4s infinite;
+    clip-path: polygon(0 66%, 100% 66%, 100% 100%, 0 100%);
+  }
+  @keyframes glitchTop {
+    0%, 90%, 100% { transform: translate(0); }
+    92% { transform: translate(-3px, -1px); }
+    94% { transform: translate(2px, 1px); }
+    96% { transform: translate(-1px, 0); }
+  }
+  @keyframes glitchBot {
+    0%, 90%, 100% { transform: translate(0); }
+    92% { transform: translate(2px, 1px); }
+    94% { transform: translate(-3px, -1px); }
+    96% { transform: translate(1px, 0); }
+  }
+
+  /* Section 2 — features split */
+  .features {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 32px;
+    margin-top: 64px;
+  }
+  .feature {
+    padding: 24px;
+    border: 1px solid rgba(184, 230, 245, 0.1);
+    backdrop-filter: blur(8px);
+    background: rgba(10, 20, 36, 0.3);
+    position: relative;
+    pointer-events: auto;
+    transition: border-color 0.3s, transform 0.3s;
+  }
+  .feature:hover {
+    border-color: var(--accent);
+    transform: translateY(-4px);
+  }
+  .feature-num {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    color: var(--ice-cyan);
+    letter-spacing: 0.2em;
+    margin-bottom: 16px;
+  }
+  .feature-title {
+    font-size: 20px;
+    font-weight: 300;
+    margin-bottom: 12px;
+  }
+  .feature-text {
+    font-size: 13px;
+    line-height: 1.5;
+    color: rgba(234, 246, 255, 0.55);
+  }
+
+  /* Scroll indicator */
+  .scroll-indicator {
+    position: fixed;
+    bottom: 80px;
+    left: 50%;
+    transform: translateX(-50%);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    letter-spacing: 0.3em;
+    color: var(--ice-cyan);
+    z-index: 10;
+    animation: scrollBob 2s infinite;
+    pointer-events: none;
+  }
+  @keyframes scrollBob {
+    0%, 100% { transform: translate(-50%, 0); opacity: 0.5; }
+    50% { transform: translate(-50%, 6px); opacity: 1; }
+  }
+  .scroll-line {
+    width: 1px;
+    height: 32px;
+    background: linear-gradient(180deg, transparent, var(--ice-cyan));
+  }
+
+  /* Footer simple */
+  .footer {
+    text-align: center;
+  }
+  .footer h2 { margin-bottom: 24px; }
+  .footer a {
+    color: var(--ice-cyan);
+    text-decoration: none;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    letter-spacing: 0.3em;
+    text-transform: uppercase;
+    border-bottom: 1px solid var(--ice-cyan);
+    padding-bottom: 4px;
+    pointer-events: auto;
+  }
+</style>
+</head>
+<body>
+
+<!-- Loader -->
+<div id="loader">
+  <div style="display: flex; flex-direction: column; align-items: center;">
+    <div class="loader-text">Initializing volumetric data</div>
+    <div class="loader-bar"></div>
+    <div class="loader-text" id="loadPct" style="margin-top: 16px; color: rgba(184,230,245,0.4);">0%</div>
+  </div>
+</div>
+
+<!-- Curseur -->
+<div class="cursor" id="cursor"></div>
+<div class="cursor-dot" id="cursorDot"></div>
+
+<!-- HUD -->
+<div class="hud">
+  <div class="hud-left">
+    <div class="hud-dot"></div>
+    <span>CRYO / v0.1.4</span>
+    <span style="opacity: 0.4;">[ webGL active ]</span>
+  </div>
+  <div class="hud-right">
+    <span>STUDIO</span>
+    <span>WORK</span>
+    <span>CONTACT</span>
+  </div>
+</div>
+
+<div class="hud-bottom">
+  <span>49.5°N · 2.3°E · -12°C</span>
+  <span id="fpsCounter">— FPS</span>
+  <span>SCROLL TO EXPLORE</span>
+</div>
+
+<!-- Canvas Three.js -->
+<canvas id="scene"></canvas>
+
+<!-- Contenu -->
+<div class="content">
+
+  <section class="section" data-section="0">
+    <div class="label">/ a crystal lab</div>
+    <h1>
+      <span class="glitch" data-text="CRYO">CRYO</span>
+    </h1>
+    <p class="body-text">
+      Procedural ice geometry, shader-driven UI and volumetric particle systems.
+      We craft web experiences that exist in the space between code and matter.
+    </p>
+  </section>
+
+  <section class="section" data-section="1">
+    <div class="label">/ what we do</div>
+    <h2>We compress<br>physics into<br>pixels.</h2>
+    <p class="body-text">
+      Every frame: 32,768 particles, one fragment shader, zero compromise.
+      The entire interface is rendered in WebGL — no DOM elements, no reflows.
+    </p>
+  </section>
+
+  <section class="section" data-section="2">
+    <div class="label">/ capabilities</div>
+    <h2>Built from<br>first principles.</h2>
+    <div class="features">
+      <div class="feature">
+        <div class="feature-num">01 /</div>
+        <div class="feature-title">Custom GLSL</div>
+        <div class="feature-text">Fragment and vertex shaders authored from scratch. SDF text, ray-marched volumes, post-processing chains.</div>
+      </div>
+      <div class="feature">
+        <div class="feature-num">02 /</div>
+        <div class="feature-title">Volumetric data</div>
+        <div class="feature-text">VDB to browser pipelines, real-time fluid simulation, sub-megabyte payload.</div>
+      </div>
+      <div class="feature">
+        <div class="feature-num">03 /</div>
+        <div class="feature-title">Cinematic UX</div>
+        <div class="feature-text">Scroll-driven camera dollies, particle morph targets, mouse-reactive force fields.</div>
+      </div>
+    </div>
+  </section>
+
+  <section class="section footer" data-section="3">
+    <div class="label">/ let's talk</div>
+    <h2>Send signal.</h2>
+    <p class="body-text" style="margin: 0 auto 32px;">
+      We take three projects per quarter.<br>
+      If you're building something that should feel impossible — start here.
+    </p>
+    <a href="#">hello@cryo.studio →</a>
+  </section>
+
+</div>
+
+<div class="scroll-indicator" id="scrollHint">
+  <span>SCROLL</span>
+  <div class="scroll-line"></div>
+</div>
+
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+    "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+  }
+}
+</script>
+
+<script type="module">
+import * as THREE from 'three';
+import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
+import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
+
+// =====================================================================
+//   SETUP
+// =====================================================================
+
+const canvas = document.getElementById('scene');
+const renderer = new THREE.WebGLRenderer({
+  canvas,
+  antialias: true,
+  alpha: true,
+  powerPreference: 'high-performance',
+});
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.setClearColor(0x050810, 1);
+
+const scene = new THREE.Scene();
+scene.fog = new THREE.FogExp2(0x050810, 0.04);
+
+const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 100);
+camera.position.set(0, 0, 8);
+
+// =====================================================================
+//   GENERATE MORPH TARGETS (sphere, torus, cube)
+// =====================================================================
+
+const PARTICLE_COUNT = 8000;
+
+// All shapes use radius ~2.5 to spread density and avoid saturation
+function sphereTarget(n) {
+  const arr = new Float32Array(n * 3);
+  for (let i = 0; i < n; i++) {
+    const phi = Math.acos(2 * Math.random() - 1);
+    const theta = Math.random() * Math.PI * 2;
+    const r = 2.5 + (Math.random() - 0.5) * 0.2;
+    arr[i*3]   = r * Math.sin(phi) * Math.cos(theta);
+    arr[i*3+1] = r * Math.sin(phi) * Math.sin(theta);
+    arr[i*3+2] = r * Math.cos(phi);
+  }
+  return arr;
+}
+
+function torusTarget(n) {
+  const arr = new Float32Array(n * 3);
+  const R = 2.4;  // ring
+  const r = 0.9;  // tube
+  for (let i = 0; i < n; i++) {
+    const u = Math.random() * Math.PI * 2;
+    const v = Math.random() * Math.PI * 2;
+    arr[i*3]   = (R + r * Math.cos(v)) * Math.cos(u);
+    arr[i*3+1] = (R + r * Math.cos(v)) * Math.sin(u);
+    arr[i*3+2] = r * Math.sin(v);
+  }
+  return arr;
+}
+
+function cubeTarget(n) {
+  const arr = new Float32Array(n * 3);
+  const s = 2.2;
+  for (let i = 0; i < n; i++) {
+    const face = Math.floor(Math.random() * 6);
+    const a = (Math.random() - 0.5) * 2 * s;
+    const b = (Math.random() - 0.5) * 2 * s;
+    let x, y, z;
+    switch (face) {
+      case 0: x = s;  y = a;  z = b;  break;
+      case 1: x = -s; y = a;  z = b;  break;
+      case 2: x = a;  y = s;  z = b;  break;
+      case 3: x = a;  y = -s; z = b;  break;
+      case 4: x = a;  y = b;  z = s;  break;
+      case 5: x = a;  y = b;  z = -s; break;
+    }
+    arr[i*3] = x; arr[i*3+1] = y; arr[i*3+2] = z;
+  }
+  return arr;
+}
+
+function galaxyTarget(n) {
+  const arr = new Float32Array(n * 3);
+  const arms = 4;
+  for (let i = 0; i < n; i++) {
+    const arm = Math.floor(Math.random() * arms);
+    const armAngle = (arm / arms) * Math.PI * 2;
+    const r = Math.pow(Math.random(), 0.5) * 3.2;
+    const angle = armAngle + r * 2.5 + (Math.random() - 0.5) * 0.4;
+    const yJitter = (Math.random() - 0.5) * 0.25 * (1 - r / 3.2);
+    arr[i*3]   = Math.cos(angle) * r;
+    arr[i*3+1] = yJitter;
+    arr[i*3+2] = Math.sin(angle) * r;
+  }
+  return arr;
+}
+
+const targetA = sphereTarget(PARTICLE_COUNT);
+const targetB = torusTarget(PARTICLE_COUNT);
+const targetC = cubeTarget(PARTICLE_COUNT);
+const targetD = galaxyTarget(PARTICLE_COUNT);
+
+const seeds = new Float32Array(PARTICLE_COUNT);
+for (let i = 0; i < PARTICLE_COUNT; i++) seeds[i] = Math.random();
+
+const geometry = new THREE.BufferGeometry();
+geometry.setAttribute('posA', new THREE.BufferAttribute(targetA, 3));
+geometry.setAttribute('posB', new THREE.BufferAttribute(targetB, 3));
+geometry.setAttribute('posC', new THREE.BufferAttribute(targetC, 3));
+geometry.setAttribute('posD', new THREE.BufferAttribute(targetD, 3));
+geometry.setAttribute('seed', new THREE.BufferAttribute(seeds, 1));
+geometry.setAttribute('position', new THREE.BufferAttribute(new Float32Array(PARTICLE_COUNT * 3), 3));
+
+// =====================================================================
+//   SHADERS
+// =====================================================================
+
+const vertexShader = /* glsl */`
+  attribute vec3 posA;
+  attribute vec3 posB;
+  attribute vec3 posC;
+  attribute vec3 posD;
+  attribute float seed;
+
+  uniform float uTime;
+  uniform float uMorph;       // 0..3, continuous
+  uniform vec3 uMouse;
+  uniform float uMouseStrength;
+  uniform float uSize;
+
+  varying float vSeed;
+  varying float vDist;
+  varying vec3 vWorldPos;
+
+  // Simplex noise 3D (Ashima)
+  vec4 permute(vec4 x){return mod(((x*34.0)+1.0)*x, 289.0);}
+  vec4 taylorInvSqrt(vec4 r){return 1.79284291400159 - 0.85373472095314 * r;}
+  float snoise(vec3 v){
+    const vec2 C = vec2(1.0/6.0, 1.0/3.0);
+    const vec4 D = vec4(0.0, 0.5, 1.0, 2.0);
+    vec3 i  = floor(v + dot(v, C.yyy));
+    vec3 x0 = v - i + dot(i, C.xxx);
+    vec3 g = step(x0.yzx, x0.xyz);
+    vec3 l = 1.0 - g;
+    vec3 i1 = min(g.xyz, l.zxy);
+    vec3 i2 = max(g.xyz, l.zxy);
+    vec3 x1 = x0 - i1 + C.xxx;
+    vec3 x2 = x0 - i2 + C.yyy;
+    vec3 x3 = x0 - D.yyy;
+    i = mod(i, 289.0);
+    vec4 p = permute(permute(permute(
+      i.z + vec4(0.0, i1.z, i2.z, 1.0))
+      + i.y + vec4(0.0, i1.y, i2.y, 1.0))
+      + i.x + vec4(0.0, i1.x, i2.x, 1.0));
+    float n_ = 1.0/7.0;
+    vec3 ns = n_ * D.wyz - D.xzx;
+    vec4 j = p - 49.0 * floor(p * ns.z * ns.z);
+    vec4 x_ = floor(j * ns.z);
+    vec4 y_ = floor(j - 7.0 * x_);
+    vec4 x = x_ * ns.x + ns.yyyy;
+    vec4 y = y_ * ns.x + ns.yyyy;
+    vec4 h = 1.0 - abs(x) - abs(y);
+    vec4 b0 = vec4(x.xy, y.xy);
+    vec4 b1 = vec4(x.zw, y.zw);
+    vec4 s0 = floor(b0)*2.0 + 1.0;
+    vec4 s1 = floor(b1)*2.0 + 1.0;
+    vec4 sh = -step(h, vec4(0.0));
+    vec4 a0 = b0.xzyw + s0.xzyw*sh.xxyy;
+    vec4 a1 = b1.xzyw + s1.xzyw*sh.zzww;
+    vec3 p0 = vec3(a0.xy, h.x);
+    vec3 p1 = vec3(a0.zw, h.y);
+    vec3 p2 = vec3(a1.xy, h.z);
+    vec3 p3 = vec3(a1.zw, h.w);
+    vec4 norm = taylorInvSqrt(vec4(dot(p0,p0), dot(p1,p1), dot(p2,p2), dot(p3,p3)));
+    p0 *= norm.x; p1 *= norm.y; p2 *= norm.z; p3 *= norm.w;
+    vec4 m = max(0.6 - vec4(dot(x0,x0), dot(x1,x1), dot(x2,x2), dot(x3,x3)), 0.0);
+    m = m * m;
+    return 42.0 * dot(m*m, vec4(dot(p0,x0), dot(p1,x1), dot(p2,x2), dot(p3,x3)));
+  }
+
+  void main() {
+    vSeed = seed;
+
+    // pick the two targets to interpolate between
+    float m = clamp(uMorph, 0.0, 3.0);
+    int idx = int(floor(m));
+    float k = fract(m);
+
+    vec3 p0, p1;
+    if (idx == 0) { p0 = posA; p1 = posB; }
+    else if (idx == 1) { p0 = posB; p1 = posC; }
+    else if (idx == 2) { p0 = posC; p1 = posD; }
+    else { p0 = posD; p1 = posA; k = 0.0; }
+
+    // smooth interp + per-particle delay
+    float delay = seed * 0.4;
+    float kSmooth = smoothstep(delay, delay + 0.6, k);
+    vec3 pos = mix(p0, p1, kSmooth);
+
+    // noise displacement
+    float n = snoise(pos * 0.8 + vec3(uTime * 0.15, uTime * 0.1, uTime * 0.2));
+    pos += vec3(n) * 0.08 * (0.5 + seed);
+
+    // breathing
+    pos *= 1.0 + sin(uTime * 0.7 + seed * 6.28) * 0.015;
+
+    // mouse force field — repel particles near mouse
+    vec3 toMouse = pos - uMouse;
+    float md = length(toMouse);
+    float force = exp(-md * md * 1.8) * uMouseStrength;
+    pos += normalize(toMouse + vec3(0.0001)) * force * 0.5;
+
+    vDist = md;
+    vWorldPos = pos;
+
+    vec4 mvPos = modelViewMatrix * vec4(pos, 1.0);
+    gl_Position = projectionMatrix * mvPos;
+    // ~5-8 px per particle at z=8 — distinct dots, not blobs
+    gl_PointSize = uSize * (1.0 + force * 1.5) * (45.0 / -mvPos.z);
+  }
+`;
+
+const fragmentShader = /* glsl */`
+  uniform float uTime;
+  uniform vec3 uColorA;
+  uniform vec3 uColorB;
+  uniform vec3 uColorAccent;
+
+  varying float vSeed;
+  varying float vDist;
+  varying vec3 vWorldPos;
+
+  void main() {
+    // round soft point
+    vec2 uv = gl_PointCoord - 0.5;
+    float r = length(uv);
+    if (r > 0.5) discard;
+
+    // soft falloff — much sharper now, so each point is a tiny dot
+    float alpha = smoothstep(0.5, 0.0, r);
+    alpha = pow(alpha, 2.4);
+
+    // color mix based on world position + time + seed
+    float t = (vWorldPos.y + 2.0) * 0.25 + uTime * 0.05 + vSeed * 0.3;
+    vec3 col = mix(uColorA, uColorB, smoothstep(0.0, 1.0, t));
+
+    // accent flares (only ~1% of particles, brightened)
+    float accent = step(0.99, vSeed) * (0.5 + 0.5 * sin(uTime * 4.0 + vSeed * 30.0));
+    col = mix(col, uColorAccent, accent);
+
+    // glow near mouse
+    float mouseGlow = exp(-vDist * vDist * 1.5);
+    col += uColorAccent * mouseGlow * 0.4;
+
+    // normal alpha compositing — each particle is a distinct dot
+    alpha *= 0.9;
+
+    gl_FragColor = vec4(col, alpha);
+  }
+`;
+
+const material = new THREE.ShaderMaterial({
+  vertexShader,
+  fragmentShader,
+  uniforms: {
+    uTime:          { value: 0 },
+    uMorph:         { value: 0 },
+    uMouse:         { value: new THREE.Vector3(100, 100, 100) },
+    uMouseStrength: { value: 0 },
+    uSize:          { value: 1.3 },
+    uColorA:        { value: new THREE.Color(0x4d9eff) },
+    uColorB:        { value: new THREE.Color(0xb8e6f5) },
+    uColorAccent:   { value: new THREE.Color(0x7ddcff) },
+  },
+  transparent: true,
+  blending: THREE.NormalBlending,
+  depthWrite: false,
+});
+
+const points = new THREE.Points(geometry, material);
+scene.add(points);
+
+// background glow plane — soft radial gradient via shader (subtle aurora behind)
+const bgGeo = new THREE.PlaneGeometry(40, 40);
+const bgMat = new THREE.ShaderMaterial({
+  uniforms: { uTime: { value: 0 } },
+  vertexShader: `
+    varying vec2 vUv;
+    void main() {
+      vUv = uv;
+      gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+    }
+  `,
+  fragmentShader: `
+    varying vec2 vUv;
+    uniform float uTime;
+    void main() {
+      vec2 c = vUv - 0.5;
+      float d = length(c);
+      // VERY subtle radial gradient (deep navy → near-black at edges)
+      float g = smoothstep(0.7, 0.0, d);
+      vec3 base = vec3(0.008, 0.012, 0.020);   // near black
+      vec3 center = vec3(0.020, 0.035, 0.060); // slightly lifted navy
+      vec3 col = mix(base, center, g);
+      gl_FragColor = vec4(col, 1.0);
+    }
+  `,
+  depthWrite: false,
+  depthTest: false,
+});
+const bg = new THREE.Mesh(bgGeo, bgMat);
+bg.position.z = -10;
+scene.add(bg);
+
+// =====================================================================
+//   POST-PROCESSING (BLOOM)
+// =====================================================================
+
+const composer = new EffectComposer(renderer);
+composer.addPass(new RenderPass(scene, camera));
+const bloom = new UnrealBloomPass(
+  new THREE.Vector2(window.innerWidth, window.innerHeight),
+  0.25,   // strength — gentle halo only on the brightest pixels
+  0.4,    // radius
+  0.92    // threshold — basically only accent flares (~1% of particles) bloom
+);
+composer.addPass(bloom);
+composer.addPass(new OutputPass());
+
+// =====================================================================
+//   INTERACTION — Mouse + Scroll
+// =====================================================================
+
+const mouse = new THREE.Vector2(0, 0);
+const mouseWorld = new THREE.Vector3();
+const raycaster = new THREE.Raycaster();
+const sphereHelper = new THREE.Sphere(new THREE.Vector3(0, 0, 0), 2);
+
+let targetMouseStrength = 0;
+let scrollY = 0;
+let smoothScroll = 0;
+let lastCursorX = 0, lastCursorY = 0;
+let smoothCursorX = 0, smoothCursorY = 0;
+const cursorEl = document.getElementById('cursor');
+const cursorDot = document.getElementById('cursorDot');
+
+window.addEventListener('pointermove', (e) => {
+  mouse.x = (e.clientX / window.innerWidth) * 2 - 1;
+  mouse.y = -(e.clientY / window.innerHeight) * 2 + 1;
+  lastCursorX = e.clientX;
+  lastCursorY = e.clientY;
+  cursorDot.style.left = e.clientX + 'px';
+  cursorDot.style.top  = e.clientY + 'px';
+  targetMouseStrength = 1;
+});
+window.addEventListener('pointerleave', () => { targetMouseStrength = 0; });
+
+document.querySelectorAll('.feature, .footer a').forEach((el) => {
+  el.addEventListener('pointerenter', () => cursorEl.classList.add('hover'));
+  el.addEventListener('pointerleave', () => cursorEl.classList.remove('hover'));
+});
+
+window.addEventListener('scroll', () => {
+  scrollY = window.scrollY;
+  if (scrollY > 50) {
+    document.getElementById('scrollHint').style.opacity = '0';
+  } else {
+    document.getElementById('scrollHint').style.opacity = '1';
+  }
+});
+
+window.addEventListener('resize', () => {
+  camera.aspect = window.innerWidth / window.innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(window.innerWidth, window.innerHeight);
+  composer.setSize(window.innerWidth, window.innerHeight);
+  bloom.setSize(window.innerWidth, window.innerHeight);
+});
+
+// =====================================================================
+//   LOADER FAKE PROGRESS
+// =====================================================================
+
+const loadPctEl = document.getElementById('loadPct');
+const loaderEl = document.getElementById('loader');
+let fakeProgress = 0;
+let loaderStartTime = performance.now();
+function tickLoader() {
+  // drive progress by real elapsed time (not setInterval which can be throttled)
+  const elapsed = performance.now() - loaderStartTime;
+  fakeProgress = Math.min(100, (elapsed / 1200) * 100);  // 1.2s total
+  loadPctEl.textContent = Math.floor(fakeProgress) + '%';
+  if (fakeProgress < 100) {
+    requestAnimationFrame(tickLoader);
+  } else {
+    setTimeout(() => loaderEl.classList.add('done'), 300);
+  }
+}
+requestAnimationFrame(tickLoader);
+
+// =====================================================================
+//   RENDER LOOP
+// =====================================================================
+
+const clock = new THREE.Clock();
+let frameCount = 0;
+let fpsLastTime = performance.now();
+const fpsEl = document.getElementById('fpsCounter');
+
+function animate() {
+  const elapsed = clock.getElapsedTime();
+  const dt = clock.getDelta();
+
+  // smooth scroll
+  smoothScroll += (scrollY - smoothScroll) * 0.08;
+  // scroll → morph (0..3 cycling through targets, with full doc = 3 transitions)
+  const scrollMax = Math.max(document.body.scrollHeight - window.innerHeight, 1);
+  const scrollNorm = smoothScroll / scrollMax;  // 0..1
+  const morphTarget = scrollNorm * 3;           // 0..3
+
+  // smooth cursor
+  smoothCursorX += (lastCursorX - smoothCursorX) * 0.15;
+  smoothCursorY += (lastCursorY - smoothCursorY) * 0.15;
+  cursorEl.style.left = smoothCursorX + 'px';
+  cursorEl.style.top  = smoothCursorY + 'px';
+
+  // project mouse to 3D world plane at z=0
+  raycaster.setFromCamera(mouse, camera);
+  const t = -raycaster.ray.origin.z / raycaster.ray.direction.z;
+  mouseWorld.copy(raycaster.ray.origin).addScaledVector(raycaster.ray.direction, t);
+
+  // smooth mouse strength
+  material.uniforms.uMouseStrength.value += (targetMouseStrength - material.uniforms.uMouseStrength.value) * 0.1;
+  material.uniforms.uMouse.value.lerp(mouseWorld, 0.15);
+  material.uniforms.uTime.value = elapsed;
+  material.uniforms.uMorph.value += (morphTarget - material.uniforms.uMorph.value) * 0.06;
+  bgMat.uniforms.uTime.value = elapsed;
+
+  // gentle auto-rotate
+  points.rotation.y = elapsed * 0.08;
+  points.rotation.x = Math.sin(elapsed * 0.2) * 0.1;
+
+  // camera dolly on scroll — pull BACK instead of zoom in (so the shape stays visible)
+  camera.position.z = 7 + scrollNorm * 3;
+  camera.position.y = scrollNorm * 0.5;
+  camera.lookAt(0, 0, 0);
+
+  composer.render();
+
+  // FPS counter (update once per second)
+  frameCount++;
+  const now = performance.now();
+  if (now - fpsLastTime > 1000) {
+    const fps = Math.round((frameCount * 1000) / (now - fpsLastTime));
+    fpsEl.textContent = fps + ' FPS';
+    frameCount = 0;
+    fpsLastTime = now;
+  }
+
+  requestAnimationFrame(animate);
+}
+
+animate();
+</script>
+</body>
+</html>

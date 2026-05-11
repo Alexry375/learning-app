@@ -1,0 +1,407 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <title>QCM Apprentissage — Drill 20 questions</title>
+  <style>
+    :root {
+      --bg: #0a0e14;
+      --panel: #11161e;
+      --text: #c9d1d9;
+      --dim: #6e7681;
+      --accent: #58a6ff;
+      --ok: #56d364;
+      --ko: #f85149;
+      --warn: #d29922;
+      --rnn: #d29922;
+      --border: rgba(110, 118, 129, 0.3);
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      padding: 1.5rem 1rem 4rem;
+      background: var(--bg);
+      color: var(--text);
+      font-family: ui-sans-serif, -apple-system, "Segoe UI", system-ui, sans-serif;
+      font-size: 15px;
+      line-height: 1.5;
+    }
+    .wrap { max-width: 880px; margin: 0 auto; }
+    header {
+      margin-bottom: 1.5rem;
+      padding-bottom: 1rem;
+      border-bottom: 1px solid var(--border);
+    }
+    h1 {
+      font-family: ui-monospace, "SF Mono", Menlo, monospace;
+      font-size: 0.85rem;
+      letter-spacing: 0.18em;
+      color: var(--accent);
+      margin: 0 0 0.3rem;
+    }
+    .sub { color: var(--dim); font-size: 0.85rem; margin: 0; }
+    .meter {
+      margin-top: 1rem;
+      font-family: ui-monospace, monospace;
+      font-size: 0.8rem;
+      color: var(--dim);
+    }
+    .meter b { color: var(--text); font-weight: 600; }
+    .meter .score-ok { color: var(--ok); }
+    .meter .score-ko { color: var(--ko); }
+    .q {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 1.2rem 1.3rem 1rem;
+      margin-bottom: 1rem;
+    }
+    .q.rnn { border-left: 3px solid var(--rnn); }
+    .q-num {
+      font-family: ui-monospace, monospace;
+      font-size: 0.72rem;
+      letter-spacing: 0.15em;
+      color: var(--dim);
+      margin-bottom: 0.3rem;
+    }
+    .q-num .tag {
+      color: var(--rnn);
+      margin-left: 0.5rem;
+    }
+    .prompt {
+      font-size: 1rem;
+      margin-bottom: 0.6rem;
+      line-height: 1.45;
+    }
+    .prompt code {
+      font-family: ui-monospace, monospace;
+      font-size: 0.92em;
+      background: rgba(110, 118, 129, 0.15);
+      padding: 1px 5px;
+      border-radius: 3px;
+      color: var(--accent);
+    }
+    .options {
+      list-style: none;
+      padding: 0;
+      margin: 0.5rem 0 0;
+    }
+    .opt {
+      display: block;
+      padding: 0.55rem 0.8rem;
+      margin-bottom: 0.35rem;
+      background: rgba(110, 118, 129, 0.08);
+      border: 1px solid transparent;
+      border-radius: 4px;
+      cursor: pointer;
+      transition: all 0.15s;
+      font-size: 0.95rem;
+    }
+    .opt:hover { background: rgba(110, 118, 129, 0.18); }
+    .opt.correct { background: rgba(86, 211, 100, 0.15); border-color: var(--ok); color: var(--ok); }
+    .opt.wrong { background: rgba(248, 81, 73, 0.12); border-color: var(--ko); color: var(--ko); }
+    .opt.reveal-correct { background: rgba(86, 211, 100, 0.08); border-color: rgba(86, 211, 100, 0.4); }
+    .opt .letter {
+      display: inline-block;
+      width: 1.4em;
+      font-family: ui-monospace, monospace;
+      color: var(--dim);
+      font-weight: 600;
+    }
+    .opt.correct .letter, .opt.wrong .letter { color: inherit; }
+    .rationale {
+      display: none;
+      margin-top: 0.7rem;
+      padding: 0.6rem 0.9rem;
+      background: rgba(88, 166, 255, 0.06);
+      border-left: 2px solid var(--accent);
+      font-size: 0.86rem;
+      color: var(--dim);
+    }
+    .rationale.show { display: block; }
+    .rationale code {
+      font-family: ui-monospace, monospace;
+      font-size: 0.92em;
+      color: var(--text);
+    }
+    .legend {
+      margin: 1.5rem 0 0;
+      font-size: 0.78rem;
+      color: var(--dim);
+      font-style: italic;
+    }
+    .legend .rnn-dot {
+      display: inline-block;
+      width: 0.7rem;
+      height: 0.7rem;
+      background: var(--rnn);
+      border-radius: 1px;
+      vertical-align: middle;
+      margin: 0 0.3rem 2px;
+    }
+  </style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <h1>QCM APPRENTISSAGE — DRILL 20 QUESTIONS</h1>
+  <p class="sub">Click sur une option = vérification immédiate + correction. Pas de validation finale, pas de timer. Le but est de drill rapide.</p>
+  <p class="meter" id="meter">Score : <b id="score">0</b> / 20 · <span class="score-ok" id="okc">0 ✓</span> · <span class="score-ko" id="koc">0 ✕</span></p>
+  <p class="legend"><span class="rnn-dot"></span> Question marquée RNN / séquence (zone à drill en priorité).</p>
+</header>
+
+<div id="qs"></div>
+
+</div>
+
+<script>
+const Q = [
+  {
+    p: `Ordre des 4 opérations dans la descente de gradient stochastique mini-batch :<br><code>(A)</code> Mise à jour des paramètres du modèle<br><code>(B)</code> Prédiction du modèle pour le batch courant<br><code>(C)</code> Calcul du gradient de la fonction objectif par rapport aux paramètres<br><code>(D)</code> Calcul de la fonction objectif pour le batch courant`,
+    opts: [
+      ["B → D → C → A", true],
+      ["B → C → D → A", false],
+      ["A → B → D → C", false],
+      ["D → B → C → A", false],
+    ],
+    r: "Prédire d'abord (B), comparer à la vraie sortie via la fonction de coût (D), rétropropager pour obtenir le gradient (C), puis mettre à jour (A). Mnémonique : <code>forward → loss → backward → step</code>."
+  },
+  {
+    p: "Lors du <strong>fine-tuning</strong> d'un réseau pré-entraîné, le taux d'apprentissage utilisé par rapport à celui de l'entraînement initial est :",
+    opts: [
+      ["Plus petit", true],
+      ["Égal", false],
+      ["Plus grand", false],
+      ["Indifférent", false],
+    ],
+    r: "Le fine-tuning ajuste finement des poids déjà pertinents. Un LR trop grand détruit les filtres préentraînés (cf. TP6 VGG-16). Toujours <strong>très petit</strong> en fine-tuning."
+  },
+  {
+    p: "Problème de classification à 3 classes — fonction d'activation sur la <strong>couche de sortie</strong> ?",
+    opts: [
+      ["Softmax", true],
+      ["Sigmoïde", false],
+      ["ReLU", false],
+      ["Tanh", false],
+    ],
+    r: "Softmax transforme les logits en distribution de probabilité (Σ = 1, chaque sortie ∈ [0,1]). Sigmoïde = binaire. ReLU = couches cachées."
+  },
+  {
+    p: "Problème de classification à 3 classes — format du label correspondant à la classe 2 (sur 3 classes 0,1,2) ?",
+    opts: [
+      ["<code>[0, 0, 1]</code> (one-hot)", true],
+      ["<code>2</code> (entier)", false],
+      ["<code>[2]</code>", false],
+      ["<code>[0.33, 0.33, 0.34]</code>", false],
+    ],
+    r: "Le label doit être au format <strong>one-hot vector</strong> pour la cross-entropy catégorielle. Classe 2 sur indexation 0-2 → <code>[0, 0, 1]</code>. Utiliser <code>tf.keras.utils.to_categorical</code>."
+  },
+  {
+    p: "Problème de classification à 3 classes — <strong>fonction de coût</strong> ?",
+    opts: [
+      ["Categorical cross-entropy", true],
+      ["MSE (erreur quadratique moyenne)", false],
+      ["Hinge loss", false],
+      ["Binary cross-entropy", false],
+    ],
+    r: "Catégorielle (3+ classes) → categorical cross-entropy. Pour 2 classes → binary cross-entropy. MSE est pour la régression."
+  },
+  {
+    p: "NLP — dimensions de la matrice de poids d'une couche d'<strong>Embedding</strong>. Notations : <code>B</code> = batch, <code>V</code> = vocabulaire, <code>E</code> = embedding, <code>N</code> = classes.",
+    opts: [
+      ["<code>V × E</code>", true],
+      ["<code>B × E</code>", false],
+      ["<code>E × E</code>", false],
+      ["<code>N × B</code>", false],
+    ],
+    r: "Une couche d'embedding est un <strong>lookup</strong> : pour chaque token du vocabulaire (V), elle retourne un vecteur dense de dimension E. Donc matrice <code>V × E</code>."
+  },
+  {
+    p: `RNN classification de texte <strong>many-to-one</strong>, avec <code>MAX_LEN</code> = longueur max séquence, <code>B</code> = batch, <code>E</code> = embedding, 16 neurones dans la cellule récurrente, <code>N</code> = classes. Dimension du tenseur en <strong>entrée</strong> de la couche récurrente (après embedding) ?`,
+    rnn: true,
+    opts: [
+      ["<code>B × MAX_LEN × E</code>", true],
+      ["<code>B × E</code>", false],
+      ["<code>B × MAX_LEN × 16</code>", false],
+      ["<code>MAX_LEN × E</code>", false],
+    ],
+    r: "Après embedding, chaque token → vecteur E. Pour un batch de B séquences de longueur MAX_LEN, on obtient un tenseur 3D <code>B × MAX_LEN × E</code>."
+  },
+  {
+    p: `RNN <strong>many-to-one</strong>, 16 neurones dans la cellule récurrente. Dimension du tenseur en <strong>sortie</strong> de la couche récurrente (avant la couche dense finale) ?`,
+    rnn: true,
+    opts: [
+      ["<code>B × 16</code>", true],
+      ["<code>B × MAX_LEN × 16</code>", false],
+      ["<code>B × MAX_LEN</code>", false],
+      ["<code>16 × N</code>", false],
+    ],
+    r: "Many-to-one : la cellule récurrente renvoie <strong>uniquement le dernier état caché</strong>. Avec 16 neurones, ça fait un vecteur de taille 16 par séquence. Pour un batch de B → <code>B × 16</code>."
+  },
+  {
+    p: "Classification <strong>binaire</strong> (chien vs chat) — fonction d'activation sur la couche de sortie ?",
+    opts: [
+      ["Sigmoïde", true],
+      ["Softmax", false],
+      ["ReLU", false],
+      ["Linéaire", false],
+    ],
+    r: "Binaire = 1 neurone de sortie + sigmoïde (sortie ∈ [0,1] = probabilité de la classe positive). Softmax fonctionne aussi mais demande 2 neurones et un label one-hot — plus lourd pour rien."
+  },
+  {
+    p: "Modèle qui atteint une accuracy de 98% sur l'ensemble d'apprentissage mais 65% sur l'ensemble de validation. Diagnostic ?",
+    opts: [
+      ["Sur-apprentissage (overfitting)", true],
+      ["Sous-apprentissage (underfitting)", false],
+      ["Données non normalisées", false],
+      ["Capacité insuffisante", false],
+    ],
+    r: "Symptôme caractéristique : <strong>faible erreur train, forte erreur val</strong>. Le modèle a mémorisé l'ensemble d'apprentissage sans généraliser. Remèdes : régularisation L1/L2, dropout, augmentation de données, modèle plus simple."
+  },
+  {
+    p: `Régularisation L2 : la fonction objectif minimisée devient <code>J(θ) = (1/n) Σ loss(...) + λ · ?</code> :`,
+    opts: [
+      ["<code>Σ θⱼ²</code> (somme des carrés des paramètres)", true],
+      ["<code>Σ |θⱼ|</code> (somme des valeurs absolues)", false],
+      ["<code>Σ θⱼ</code> (somme simple)", false],
+      ["<code>max(θⱼ)</code>", false],
+    ],
+    r: "L2 = pénalité sur la <strong>norme au carré</strong> des poids (somme des θⱼ²). L1 utiliserait <code>|θⱼ|</code> et favorise la parcimonie (poids à 0). λ contrôle l'intensité de la régularisation."
+  },
+  {
+    p: "Augmentation de données pour CNN images — quelle technique <strong>n'est pas</strong> typique ?",
+    opts: [
+      ["Permutation aléatoire des pixels", true],
+      ["Rotation de l'image", false],
+      ["Flip horizontal", false],
+      ["Translation / crop aléatoire", false],
+    ],
+    r: "Rotation, flip, translation, zoom, changement de luminosité — toutes préservent la sémantique (un chat reste un chat). Permuter les pixels détruit l'information spatiale → inutile. Géré par <code>ImageDataGenerator</code> en Keras."
+  },
+  {
+    p: "Architecture CNN du TP chiens/chats — ordre canonique des couches, image 64×64×3 en entrée :",
+    opts: [
+      ["[Conv → MaxPool]×4 → Flatten → Dense → Sortie", true],
+      ["Dense → Flatten → [Conv → MaxPool]×4 → Sortie", false],
+      ["Flatten → [Conv → MaxPool]×4 → Dense → Sortie", false],
+      ["[MaxPool → Conv]×4 → Dense → Flatten → Sortie", false],
+    ],
+    r: "Base convolutive (alternance Conv/Pool, divise la dim par 2 à chaque pool) → Flatten (vectorise) → Dense (classifieur classique). Filtres typiques : 32→64→96→128."
+  },
+  {
+    p: "Transfer learning avec VGG-16 — <code>base_VGG.trainable = False</code> signifie :",
+    opts: [
+      ["Les poids de VGG sont gelés pendant l'entraînement", true],
+      ["VGG ne calcule plus rien", false],
+      ["Les poids de VGG sont réinitialisés aléatoirement", false],
+      ["VGG fonctionne en mode inférence rapide seulement", false],
+    ],
+    r: "<code>trainable = False</code> empêche la mise à jour des poids pendant <code>fit()</code>. Le forward pass marche normalement (extraction de features), seul le backward pass ne propage plus jusqu'à VGG. Critique pour ne pas écraser les filtres pré-entraînés sur ImageNet."
+  },
+  {
+    p: "Détection d'anomalies non supervisée — <strong>DBSCAN</strong>, paramètre <code>ε</code> (epsilon) :",
+    opts: [
+      ["Rayon du voisinage autour de chaque point", true],
+      ["Nombre minimum de classes à former", false],
+      ["Seuil de score d'anomalie", false],
+      ["Taux d'apprentissage de l'algo", false],
+    ],
+    r: "DBSCAN : un point dont le voisinage de rayon <code>ε</code> contient moins de <code>min_samples</code> autres points est considéré comme bruit/anomalie (label -1). Plus <code>ε</code> petit, plus le critère est strict."
+  },
+  {
+    p: "LOF (Local Outlier Factor) — interprétation du score :",
+    opts: [
+      ["Plus le score est élevé, plus la donnée est susceptible d'être une anomalie", true],
+      ["Plus le score est petit (proche de 0), plus c'est une anomalie", false],
+      ["LOF retourne 0 ou 1 (binaire)", false],
+      ["Le score représente la probabilité d'appartenir à une classe", false],
+    ],
+    r: "LOF = ratio entre la densité locale d'un point et celle de ses k plus proches voisins. Densité locale faible vs voisinage → score ≫ 1 → anomalie. Score ≈ 1 → point normal."
+  },
+  {
+    p: `Génération de texte avec RNN (problème <strong>many-to-many</strong>) — rôle des tokens <code>&lt;sos&gt;</code> et <code>&lt;eos&gt;</code> :`,
+    rnn: true,
+    opts: [
+      ["Marquer le début et la fin d'une séquence", true],
+      ["Indiquer la classe de la séquence", false],
+      ["Servir de padding", false],
+      ["Encoder des caractères inconnus", false],
+    ],
+    r: "<code>&lt;sos&gt;</code> = start of sequence (amorce la génération), <code>&lt;eos&gt;</code> = end of sequence (signale au modèle d'arrêter). Le token <code>&lt;pad&gt;</code> est distinct, sert à uniformiser les longueurs."
+  },
+  {
+    p: "Cellule RNN simple vs <strong>LSTM</strong> — différence principale :",
+    rnn: true,
+    opts: [
+      ["LSTM gère mieux les dépendances long-terme via mécanisme de portes (gates)", true],
+      ["LSTM a moins de paramètres, donc s'entraîne plus vite", false],
+      ["LSTM ne nécessite pas de couche d'embedding en amont", false],
+      ["LSTM est purement convolutionnelle", false],
+    ],
+    r: "RNN simple souffre du <strong>vanishing gradient</strong> sur longues séquences. LSTM ajoute une cellule mémoire + 3 portes (forget, input, output) qui contrôlent l'écoulement de l'information dans le temps. Coût : plus de paramètres mais bien plus stable."
+  },
+  {
+    p: `Many-to-one vs many-to-many — <strong>classification</strong> d'un nom de famille vers sa nationalité, c'est :`,
+    rnn: true,
+    opts: [
+      ["Many-to-one (séquence d'entrée → 1 sortie)", true],
+      ["Many-to-many (séquence d'entrée → séquence de sortie de même longueur)", false],
+      ["One-to-many (1 entrée → séquence de sortie)", false],
+      ["One-to-one (1 entrée → 1 sortie)", false],
+    ],
+    r: "Entrée = séquence de caractères (longueur variable). Sortie = un seul label (la nationalité). Donc <strong>many-to-one</strong>. La cellule récurrente ne retourne que le dernier état caché."
+  },
+  {
+    p: `RNN — pendant la passe <strong>forward</strong> sur une séquence <code>x₁, x₂, ..., x_T</code>, l'état caché <code>h_t</code> est calculé selon :`,
+    rnn: true,
+    opts: [
+      ["<code>h_t = f(W_xh · x_t + W_hh · h_{t-1} + b)</code>", true],
+      ["<code>h_t = f(W · x_t + b)</code> (indépendant de t-1)", false],
+      ["<code>h_t = h_{t-1}</code> (pas de mise à jour)", false],
+      ["<code>h_t = f(W · x_t · h_{t-1})</code> (produit)", false],
+    ],
+    r: "C'est <strong>la</strong> formule à connaître. À chaque pas t, l'état <code>h_t</code> dépend de l'entrée courante <code>x_t</code> ET de l'état précédent <code>h_{t-1}</code>. Les matrices <code>W_xh</code> (entrée→caché) et <code>W_hh</code> (caché→caché) sont <strong>partagées</strong> dans le temps — c'est ce qui rend le RNN entraînable sur des séquences de longueur variable. La fonction <code>f</code> est typiquement <code>tanh</code>."
+  },
+];
+
+const qs = document.getElementById("qs");
+let score = 0, okC = 0, koC = 0;
+
+Q.forEach((q, i) => {
+  const div = document.createElement("div");
+  div.className = "q" + (q.rnn ? " rnn" : "");
+  const num = `<div class="q-num">QUESTION ${String(i+1).padStart(2,"0")} / 20${q.rnn ? '<span class="tag">RNN</span>' : ''}</div>`;
+  const prompt = `<div class="prompt">${q.p}</div>`;
+  const opts = q.opts.map((o, k) => {
+    const letter = String.fromCharCode(65 + k);
+    return `<li class="opt" data-correct="${o[1]}" onclick="pick(this, ${i})"><span class="letter">${letter}.</span> ${o[0]}</li>`;
+  }).join("");
+  div.innerHTML = num + prompt + `<ul class="options">${opts}</ul><div class="rationale" id="r${i}">${q.r}</div>`;
+  qs.appendChild(div);
+});
+
+function pick(li, qi) {
+  const ul = li.parentElement;
+  if (ul.dataset.answered) return;
+  ul.dataset.answered = "1";
+  const correct = li.dataset.correct === "true";
+  li.classList.add(correct ? "correct" : "wrong");
+  if (!correct) {
+    // Reveal the correct one too
+    [...ul.children].forEach(c => {
+      if (c.dataset.correct === "true") c.classList.add("reveal-correct");
+    });
+    koC++;
+  } else {
+    okC++;
+  }
+  score++;
+  document.getElementById("score").textContent = score;
+  document.getElementById("okc").textContent = okC + " ✓";
+  document.getElementById("koc").textContent = koC + " ✕";
+  document.getElementById("r" + qi).classList.add("show");
+}
+</script>
+</body>
+</html>

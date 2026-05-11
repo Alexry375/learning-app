@@ -1,0 +1,500 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <title>Reconstitution UML — Diagrammes réels</title>
+  <style>
+    :root {
+      --paper: #f4ead8;
+      --ink: #1a1410;
+      --ink-dim: #5b4a3a;
+      --amber: #b8861f;
+      --amber-dim: #d4a548;
+      --seal: #8a3a2a;
+      --ok: #2e6b3a;
+      --bg-card: #fbf6ea;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      padding: 2.5rem 1.5rem 4rem;
+      background: var(--paper);
+      color: var(--ink);
+      font-family: "Iowan Old Style", "Charter", Georgia, serif;
+      font-size: 16px;
+      line-height: 1.55;
+    }
+    .wrap { max-width: 1200px; margin: 0 auto; }
+    h1 {
+      font-family: "Courier New", monospace;
+      font-size: 0.95rem;
+      letter-spacing: 0.18em;
+      color: var(--amber);
+      margin: 0 0 0.4rem;
+    }
+    .sub {
+      color: var(--ink-dim);
+      font-style: italic;
+      margin: 0 0 2.5rem;
+      max-width: 60ch;
+    }
+    h2 {
+      font-family: "Courier New", monospace;
+      font-size: 0.78rem;
+      letter-spacing: 0.18em;
+      color: var(--seal);
+      border-top: 1px solid rgba(184, 134, 31, 0.3);
+      padding-top: 1.5rem;
+      margin-top: 3rem;
+    }
+    .scenario {
+      background: rgba(212, 165, 72, 0.06);
+      border-left: 3px solid var(--amber);
+      padding: 0.9rem 1.1rem;
+      margin: 1rem 0 1.8rem;
+      font-size: 0.95rem;
+    }
+    .scenario code { font-family: "Courier New", monospace; font-size: 0.85rem; color: var(--seal); }
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 1.5rem;
+    }
+    .card {
+      background: var(--bg-card);
+      border: 1px solid rgba(184, 134, 31, 0.25);
+      border-radius: 4px;
+      padding: 1.1rem 1.1rem 1.3rem;
+      display: flex;
+      flex-direction: column;
+    }
+    .card .tag {
+      font-family: "Courier New", monospace;
+      font-size: 0.65rem;
+      letter-spacing: 0.18em;
+      color: var(--amber);
+      margin-bottom: 0.4rem;
+    }
+    .card .label {
+      font-size: 0.88rem;
+      color: var(--ink-dim);
+      font-style: italic;
+      margin-bottom: 0.9rem;
+      min-height: 3em;
+    }
+    .diagram {
+      background: #fff;
+      border: 1px solid rgba(0,0,0,0.06);
+      padding: 0.8rem;
+      flex-grow: 1;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      overflow-x: auto;
+      min-height: 240px;
+    }
+    .diagram svg { max-width: 100%; height: auto; }
+    .diagram img.plantuml { max-width: 100%; height: auto; display: block; }
+    .diagram .puml-loading {
+      color: var(--ink-dim);
+      font-family: "Courier New", monospace;
+      font-size: 0.72rem;
+      letter-spacing: 0.12em;
+    }
+    .conv-puml {
+      margin: 1rem 0 1.5rem;
+      padding: 0.9rem 1.1rem;
+      border: 1px dashed rgba(184, 134, 31, 0.5);
+      background: rgba(212, 165, 72, 0.04);
+      font-size: 0.85rem;
+      color: var(--ink-dim);
+    }
+    .conv-puml strong { color: var(--seal); }
+    .conv-puml code { font-family: "Courier New", monospace; color: var(--seal); }
+    .conv-puml .row { display: flex; flex-wrap: wrap; gap: 0.4rem 1.1rem; margin-top: 0.4rem; }
+    .conv-puml .row span { white-space: nowrap; }
+    .reveal {
+      margin-top: 2rem;
+      text-align: center;
+    }
+    .reveal button {
+      font-family: "Courier New", monospace;
+      font-size: 0.7rem;
+      letter-spacing: 0.18em;
+      background: transparent;
+      border: 1px solid var(--amber);
+      color: var(--amber);
+      padding: 0.6rem 1.4rem;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    .reveal button:hover { background: var(--amber); color: var(--paper); }
+    .answer {
+      display: none;
+      margin-top: 1rem;
+      padding: 0.9rem 1.1rem;
+      background: rgba(46, 107, 58, 0.08);
+      border-left: 3px solid var(--ok);
+      font-size: 0.92rem;
+    }
+    .answer.show { display: block; }
+    .answer b { color: var(--ok); }
+    .legend {
+      margin: 1.5rem 0 0;
+      padding: 1rem 1.2rem;
+      border: 1px dashed rgba(184, 134, 31, 0.4);
+      font-size: 0.85rem;
+      color: var(--ink-dim);
+    }
+    .legend code { font-family: "Courier New", monospace; color: var(--seal); }
+    .footer {
+      margin-top: 3rem;
+      padding-top: 1.5rem;
+      border-top: 1px solid rgba(184, 134, 31, 0.2);
+      font-size: 0.78rem;
+      color: var(--ink-dim);
+      font-style: italic;
+    }
+    @media (max-width: 800px) {
+      .grid { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+<div class="wrap">
+
+<h1>RECONSTITUTION UML — DIAGRAMMES RÉELS</h1>
+<p class="sub">Page exceptionnelle hors-mission. Compare visuellement les quatre propositions pour chaque question, choisis mentalement, puis dévoile la réponse en bas.</p>
+
+<div class="legend">
+  <strong>Légende UML :</strong>
+  <code>&lt;|--</code> héritage <em>(extends, triangle plein)</em> ·
+  <code>&lt;|..</code> réalisation <em>(implements, triangle pointillé)</em> ·
+  <code>*--</code> composition <em>(◆ vie liée)</em> ·
+  <code>o--</code> agrégation <em>(◇ référence)</em> ·
+  <code>--&gt;</code> association ·
+  <code>-&gt;&gt;</code> appel synchrone <em>(séquence)</em> ·
+  <code>--&gt;&gt;</code> retour <em>(pointillé)</em>.
+</div>
+
+<h2>FRAGMENT 1 — Structure statique du système</h2>
+
+<div class="scenario">
+  Le <strong>Recopieur</strong> contient des <strong>Sortie</strong> (au moins une, plusieurs possibles, vie liée). <code>Sortie</code> est une <em>interface</em>. <code>SortieAbstraite</code> est une <em>classe abstraite</em> qui implémente <code>Sortie</code> et factorise l'attribut <code>nom</code>. <code>SortieConsole</code> et <code>Antenne</code> héritent de <code>SortieAbstraite</code> et fournissent <code>publier(String)</code>. Un <code>Capteur</code>, distinct, implémente <code>Sortie</code> <em>sans</em> hériter de <code>SortieAbstraite</code>.
+</div>
+
+<div class="grid">
+
+  <div class="card">
+    <div class="tag">OPTION A</div>
+    <div class="label">Composition pleine ◆ vers <code>&lt;&lt;interface&gt;&gt; Sortie</code>. <code>SortieAbstraite</code> réalise <code>Sortie</code>. <code>SortieConsole</code> et <code>Antenne</code> héritent de <code>SortieAbstraite</code>. <code>Capteur</code> réalise <code>Sortie</code> directement.</div>
+    <div class="diagram"><pre class="mermaid">
+classDiagram
+  direction TB
+  class Recopieur
+  class Sortie {
+    &lt;&lt;interface&gt;&gt;
+    +publier(String)
+  }
+  class SortieAbstraite {
+    &lt;&lt;abstract&gt;&gt;
+    #nom: String
+  }
+  class SortieConsole
+  class Antenne
+  class Capteur
+  Recopieur "1" *-- "1..*" Sortie : contient
+  Sortie &lt;|.. SortieAbstraite
+  SortieAbstraite &lt;|-- SortieConsole
+  SortieAbstraite &lt;|-- Antenne
+  Sortie &lt;|.. Capteur
+    </pre></div>
+  </div>
+
+  <div class="card">
+    <div class="tag">OPTION B</div>
+    <div class="label">Agrégation creuse ◇ vers <code>Sortie [0..*]</code>. <code>SortieConsole</code> et <code>Antenne</code> implémentent <code>Sortie</code> directement (pas d'abstraite). <code>Capteur extends Sortie</code>.</div>
+    <div class="diagram"><pre class="mermaid">
+classDiagram
+  direction TB
+  class Recopieur
+  class Sortie {
+    &lt;&lt;interface&gt;&gt;
+    +publier(String)
+  }
+  class SortieConsole
+  class Antenne
+  class Capteur
+  Recopieur "1" o-- "0..*" Sortie : référence
+  Sortie &lt;|.. SortieConsole
+  Sortie &lt;|.. Antenne
+  Sortie &lt;|-- Capteur
+    </pre></div>
+  </div>
+
+  <div class="card">
+    <div class="tag">OPTION C</div>
+    <div class="label">Association simple <code>Recopieur ──&gt; Sortie</code>. <code>SortieAbstraite extends Sortie</code> (héritage de classe). <code>SortieConsole</code>, <code>Antenne</code>, <code>Capteur</code> héritent tous de <code>SortieAbstraite</code>.</div>
+    <div class="diagram"><pre class="mermaid">
+classDiagram
+  direction TB
+  class Recopieur
+  class Sortie
+  class SortieAbstraite
+  class SortieConsole
+  class Antenne
+  class Capteur
+  Recopieur --&gt; Sortie : utilise
+  Sortie &lt;|-- SortieAbstraite
+  SortieAbstraite &lt;|-- SortieConsole
+  SortieAbstraite &lt;|-- Antenne
+  SortieAbstraite &lt;|-- Capteur
+    </pre></div>
+  </div>
+
+  <div class="card">
+    <div class="tag">OPTION D</div>
+    <div class="label"><code>Recopieur implements Sortie</code>. <code>SortieConsole</code> et <code>Antenne</code> sont des <em>attributs</em> internes de <code>Recopieur</code>.</div>
+    <div class="diagram"><pre class="mermaid">
+classDiagram
+  direction TB
+  class Recopieur {
+    -console: SortieConsole
+    -antenne: Antenne
+  }
+  class Sortie {
+    &lt;&lt;interface&gt;&gt;
+  }
+  class SortieConsole
+  class Antenne
+  Sortie &lt;|.. Recopieur
+  Recopieur *-- SortieConsole
+  Recopieur *-- Antenne
+    </pre></div>
+  </div>
+
+</div>
+
+<div class="reveal">
+  <button onclick="document.getElementById('a1').classList.toggle('show')">RÉVÉLER LA RÉPONSE</button>
+  <div id="a1" class="answer">
+    <b>Bonne réponse : A.</b> C'est la seule qui combine correctement (i) composition pleine <code>◆ [1..*]</code> de <code>Recopieur</code> vers <code>Sortie</code>, (ii) réalisation pointillée <code>SortieAbstraite</code> ⤳ <code>Sortie</code>, (iii) héritage plein <code>SortieConsole</code> et <code>Antenne</code> de <code>SortieAbstraite</code>, (iv) <code>Capteur</code> réalise <code>Sortie</code> directement sans passer par l'abstraite — c'est précisément ce qui justifie d'avoir l'interface en plus de la classe abstraite.<br><br>
+    <em>Pourquoi pas B :</em> agrégation creuse ◇ et <code>[0..*]</code> au lieu de <code>[1..*]</code>, et pas de classe abstraite pour factoriser <code>nom</code>.<br>
+    <em>Pourquoi pas C :</em> <code>Sortie</code> est traitée comme une classe et non comme une interface (héritage plein au lieu de réalisation). Et <code>Capteur</code> hérite de <code>SortieAbstraite</code>, ce que le scénario exclut.<br>
+    <em>Pourquoi pas D :</em> <code>Recopieur</code> n'est PAS une <code>Sortie</code> : il <em>contient</em> des sorties. Inversion complète de la sémantique.
+  </div>
+</div>
+
+<h2>FRAGMENT 2 — Dynamique d'une publication <span style="font-style:italic;color:var(--ink-dim);font-weight:normal;text-transform:none;letter-spacing:normal;">(rendu PlantUML — conventions du prof N7)</span></h2>
+
+<div class="conv-puml">
+  <strong>Conventions PlantUML (à reproduire à la main sur la feuille)</strong> — c'est le rendu de référence de la correction officielle.
+  <div class="row">
+    <span><code>actor</code> = silhouette en haut à gauche</span>
+    <span>lifeline objet = rectangle crème <code>nom:Classe</code></span>
+    <span>flèche pleine = appel synchrone</span>
+    <span>flèche pointillée = retour</span>
+  </div>
+  <div class="row">
+    <span><code>«create»</code> = instanciation (fait apparaître la lifeline en dessous)</span>
+    <span>note jaune (post-it) = commentaire <code>over X</code></span>
+    <span>rectangle vertical = activation (la pile d'exécution sur cet objet)</span>
+    <span>✕ rouge en bas = destruction (<code>destroy</code>)</span>
+  </div>
+</div>
+
+<div class="scenario">
+  Un acteur <strong>Agent</strong> appelle <code>recopieur.publier("alpha")</code>. Le <code>Recopieur</code> itère sur ses <code>Sortie</code>. Pour la <code>SortieConsole</code> : <code>publier("alpha")</code> sans incident. Pour l'<code>Antenne</code> : <code>publier("alpha")</code> lève une <code>PublicationException</code> <em>catchée localement</em> et consignée. Le <code>Recopieur</code> retourne au final.
+</div>
+
+<div class="grid">
+
+  <div class="card">
+    <div class="tag">OPTION A</div>
+    <div class="label">Agent appelle <code>Recopieur.publier</code>, qui appelle successivement <code>SortieConsole.publier</code> (retour normal) puis <code>Antenne.publier</code> (lève une exception <em>catchée</em>, lifeline maintenue). <code>Recopieur</code> retourne à <code>Agent</code>.</div>
+    <div class="diagram"><pre class="plantuml">
+actor Agent
+participant "r:Recopieur" as R
+participant "sc:SortieConsole" as SC
+participant "an:Antenne" as An
+Agent -> R : publier("alpha")
+activate R
+R -> SC : publier("alpha")
+activate SC
+SC --> R
+deactivate SC
+R -> An : publier("alpha")
+activate An
+note over An : lève PublicationException
+An --> R : catchée
+deactivate An
+note over R : consigne, continue
+R --> Agent
+deactivate R
+    </pre></div>
+  </div>
+
+  <div class="card">
+    <div class="tag">OPTION B</div>
+    <div class="label">Agent appelle <code>Recopieur.publier</code>. Le <code>Recopieur</code> lève une exception qui interrompt la séquence. <em>Pas de retour à l'Agent.</em></div>
+    <div class="diagram"><pre class="plantuml">
+actor Agent
+participant "r:Recopieur" as R
+Agent -> R : publier("alpha")
+activate R
+note over R : lève une exception
+R -->x Agent : interrompu
+deactivate R
+    </pre></div>
+  </div>
+
+  <div class="card">
+    <div class="tag">OPTION C</div>
+    <div class="label">Toutes les flèches sont <em>inversées</em>. <code>Agent ← Recopieur</code>, <code>Recopieur ← SortieConsole</code>, <code>Recopieur ← Antenne</code>.</div>
+    <div class="diagram"><pre class="plantuml">
+actor Agent
+participant "r:Recopieur" as R
+participant "sc:SortieConsole" as SC
+participant "an:Antenne" as An
+R -> Agent : publier("alpha")
+SC -> R : publier("alpha")
+An -> R : publier("alpha")
+    </pre></div>
+  </div>
+
+  <div class="card">
+    <div class="tag">OPTION D</div>
+    <div class="label"><code>Agent</code> appelle <code>SortieConsole</code> directement. <code>SortieConsole</code> appelle <code>Antenne</code>. <code>Antenne</code> appelle <code>Recopieur</code>. Boucle de transmission en chaîne.</div>
+    <div class="diagram"><pre class="plantuml">
+actor Agent
+participant "sc:SortieConsole" as SC
+participant "an:Antenne" as An
+participant "r:Recopieur" as R
+Agent -> SC : publier("alpha")
+SC -> An : publier("alpha")
+An -> R : publier("alpha")
+    </pre></div>
+  </div>
+
+</div>
+
+<div class="reveal">
+  <button onclick="document.getElementById('a2').classList.toggle('show')">RÉVÉLER LA RÉPONSE</button>
+  <div id="a2" class="answer">
+    <b>Bonne réponse : A.</b> C'est la seule fidèle au scénario : appel synchrone d'<code>Agent</code> vers <code>Recopieur</code>, qui délègue successivement à <code>SortieConsole</code> (retour normal pointillé) puis à <code>Antenne</code> (exception <em>catchée localement</em>, donc la lifeline du <code>Recopieur</code> n'est pas interrompue), puis retour final à <code>Agent</code>.<br><br>
+    <em>Pourquoi pas B :</em> contredit le scénario (l'exception est catchée, donc <code>Recopieur</code> retourne bien à <code>Agent</code>).<br>
+    <em>Pourquoi pas C :</em> sens des flèches inversé — en séquence, la flèche pleine va de l'<em>appelant</em> vers l'<em>appelé</em>, pas l'inverse.<br>
+    <em>Pourquoi pas D :</em> les sorties ne se passent pas la main entre elles. C'est le <code>Recopieur</code> qui orchestre l'itération.
+  </div>
+</div>
+
+<div class="footer">
+  Page hors-mission, servie statiquement. Fragment 1 (classes) rendu via Mermaid.js. Fragment 2 (séquence) rendu via PlantUML.com — c'est le même outil que celui qui a produit la correction officielle, donc le rendu est strictement identique.
+</div>
+
+</div>
+
+<script type="module">
+  // ------- Mermaid (Fragment 1 — classDiagram) -------
+  import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs';
+  mermaid.initialize({
+    startOnLoad: true,
+    theme: 'base',
+    themeVariables: {
+      fontFamily: '"Courier New", monospace',
+      fontSize: '13px',
+      primaryColor: '#fbf6ea',
+      primaryTextColor: '#1a1410',
+      primaryBorderColor: '#b8861f',
+      lineColor: '#5b4a3a',
+      secondaryColor: '#f4ead8',
+      tertiaryColor: '#fff',
+      noteBkgColor: '#fff4d4',
+      noteTextColor: '#5b4a3a',
+      noteBorderColor: '#b8861f',
+      actorBkg: '#fbf6ea',
+      actorBorder: '#b8861f',
+      actorTextColor: '#1a1410',
+      signalColor: '#5b4a3a',
+      signalTextColor: '#1a1410',
+      labelBoxBkgColor: '#fbf6ea',
+      labelBoxBorderColor: '#b8861f',
+    },
+    sequence: { mirrorActors: false, bottomMarginAdj: 5 },
+  });
+
+  // ------- PlantUML (Fragment 2 — sequenceDiagram) -------
+  // Préambule "classique" : palette saumon/crème/jaune identique à la
+  // correction officielle du prof. À ne PAS toucher sans valider visuellement.
+  const PUML_PREAMBLE = `@startuml
+hide footbox
+skinparam style strictuml
+skinparam shadowing false
+skinparam DefaultFontName "Helvetica"
+skinparam DefaultFontSize 12
+skinparam sequence {
+  ArrowColor #A80036
+  ArrowFontColor #000000
+  LifeLineBorderColor #A80036
+  LifeLineBackgroundColor white
+  ParticipantBorderColor #A80036
+  ParticipantBackgroundColor #FEFECE
+  ParticipantFontColor #000000
+  ActorBorderColor #A80036
+  ActorBackgroundColor #FEFECE
+  ActorFontColor #000000
+  GroupBorderColor #A80036
+}
+skinparam note {
+  BackgroundColor #FBFB77
+  BorderColor #A80036
+}
+`;
+  const PUML_SUFFIX = `\n@enduml`;
+
+  // L'encodeur PlantUML : deflate raw + base64 sur alphabet custom.
+  // On l'écrit à la main pour éviter `plantuml-encoder` via esm.sh qui plante
+  // au runtime (« r.charCodeAt is not a function »).
+  import pako from 'https://esm.sh/pako@2.1.0';
+  const PUML_B64 = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz-_';
+  function pumlEncode(text) {
+    const utf8 = new TextEncoder().encode(text);
+    const deflated = pako.deflateRaw(utf8, { level: 9 });
+    let r = '';
+    for (let i = 0; i < deflated.length; i += 3) {
+      const b1 = deflated[i];
+      const b2 = i + 1 < deflated.length ? deflated[i + 1] : 0;
+      const b3 = i + 2 < deflated.length ? deflated[i + 2] : 0;
+      r += PUML_B64[b1 >> 2]
+         + PUML_B64[((b1 & 0x3) << 4) | (b2 >> 4)]
+         + PUML_B64[((b2 & 0xF) << 2) | (b3 >> 6)]
+         + PUML_B64[b3 & 0x3F];
+    }
+    return r;
+  }
+
+  const blocks = document.querySelectorAll('pre.plantuml');
+  blocks.forEach((pre) => {
+    const body = pre.textContent.trim();
+    const src = PUML_PREAMBLE + body + PUML_SUFFIX;
+    const loading = document.createElement('div');
+    loading.className = 'puml-loading';
+    loading.textContent = '⟳ COMPILATION DU DIAGRAMME…';
+    pre.replaceWith(loading);
+    try {
+      const encoded = pumlEncode(src);
+      const img = new Image();
+      img.className = 'plantuml';
+      img.alt = 'Diagramme de séquence PlantUML';
+      img.onload = () => loading.replaceWith(img);
+      img.onerror = () => {
+        loading.textContent = '⚠ PlantUML.com inaccessible — vérifie ta connexion';
+      };
+      img.src = `https://www.plantuml.com/plantuml/svg/${encoded}`;
+    } catch (e) {
+      loading.textContent = '⚠ Erreur d\'encodage : ' + (e && e.message ? e.message : e);
+    }
+  });
+</script>
+</body>
+</html>

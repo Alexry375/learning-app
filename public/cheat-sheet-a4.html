@@ -1,0 +1,318 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<title>Feuille A4 — TOB N7 1SN — Alexis</title>
+<style>
+@page { size: A4; margin: 4mm 4mm; }
+* { box-sizing: border-box; }
+html { font-family: Georgia, "Times New Roman", serif; }
+body {
+  font-size: 7.2pt;
+  line-height: 1.05;
+  color: #000;
+  margin: 0;
+  padding: 0;
+  background: #fff;
+}
+h1 { font-size: 10pt; margin: 0 0 1mm 0; font-weight: bold; border-bottom: 1.2px solid #000; padding-bottom: 0.5mm; }
+h2 { font-size: 8.5pt; margin: 1.5mm 0 0.5mm 0; font-weight: bold; background: #ddd; padding: 0.3mm 1mm; border-left: 1.5px solid #000; }
+h3 { font-size: 7.8pt; margin: 0.8mm 0 0.3mm 0; font-weight: bold; font-style: italic; }
+p, ul, ol { margin: 0 0 0.6mm 0; }
+ul, ol { padding-left: 3.5mm; }
+li { margin: 0.1mm 0; }
+table { width: 100%; border-collapse: collapse; margin: 0.5mm 0; font-size: 7pt; }
+th, td { border: 0.3px solid #555; padding: 0.3mm 0.8mm; text-align: left; vertical-align: top; }
+th { background: #eaeaea; font-weight: bold; }
+pre {
+  background: #f5f5f5;
+  border: 0.3px solid #999;
+  padding: 0.4mm 1mm;
+  margin: 0.3mm 0;
+  font-family: "Courier New", Courier, monospace;
+  font-size: 5.8pt;
+  line-height: 1.03;
+  white-space: pre-wrap;
+  overflow: hidden;
+}
+code { font-family: "Courier New", Courier, monospace; font-size: 6.8pt; background: #efefef; padding: 0 0.3mm; }
+pre code { background: transparent; padding: 0; font-size: 6.2pt; }
+strong { font-weight: bold; }
+em { font-style: italic; }
+.note { font-size: 6.8pt; color: #444; font-style: italic; }
+.page { /* flux naturel, pas de break forcé — laisse le browser remplir 2 pages A4 */ }
+.flex2 { display: flex; gap: 2mm; }
+.flex2 > div { flex: 1; min-width: 0; }
+hr { border: none; border-top: 0.3px dashed #888; margin: 0.8mm 0; }
+.title-meta { font-size: 6.5pt; color: #555; margin-bottom: 0.5mm; }
+.box { border: 0.5px solid #000; padding: 0.5mm 1.5mm; margin: 0.5mm 0; background: #fafafa; }
+.cols2 { column-count: 2; column-gap: 3mm; column-fill: balance; }
+.cols2 h2 { break-after: avoid; }
+.cols2 ol, .cols2 ul { break-inside: avoid; }
+</style>
+</head>
+<body>
+
+<!-- ============== PAGE 1 (RECTO) ============== -->
+<div class="page">
+<h1>TOB N7 1SN — feuille A4 — Alexis Briend</h1>
+<div class="title-meta">Examen 1h30, A4 manuscrite autorisée. Calibré sur sujet 2024 + audit annales 2007-2024.</div>
+
+<h2>1 · Diagramme de SÉQUENCE — formalisme N7 (Q4 type)</h2>
+<div class="flex2">
+  <div style="flex: 0.52;">
+    <img src="seq-modele.svg" alt="Diagramme de séquence avec create et destroy" style="width: 100%; height: auto; display: block; border: 0.3px solid #bbb;">
+    <p class="note" style="margin-top: 0.4mm;"><strong>Cas</strong> : <code>Client</code> demande à <code>Calculatrice</code> d'évaluer 3 + 5. <code>calc</code> instancie une <code>Operation</code> temporaire pour porter les opérandes, lui demande <code>appliquer()</code>, récupère 8, détruit l'objet, retourne.</p>
+  </div>
+  <div style="flex: 0.48;">
+    <p style="margin-bottom: 0.5mm;"><strong>Objets &amp; lifeline</strong></p>
+    <ul>
+      <li><strong>Acteur</strong> (silhouette) = déclencheur externe ; <strong>participant</strong> = rectangle crème <code>nom:Classe</code> (deux-points entre l'instance et son type).</li>
+      <li><strong>Lifeline</strong> = pointillés saumon ; <strong>activation</strong> = rectangle blanc bordé saumon = la pile d'exécution est ici.</li>
+    </ul>
+    <p style="margin: 0.5mm 0;"><strong>Flèches</strong></p>
+    <ul>
+      <li><strong>Pleine ▶</strong> = appel synchrone, label = signature.</li>
+      <li><strong>Pointillée ◁┄</strong> = retour, label = valeur (souvent omis).</li>
+    </ul>
+    <p style="margin: 0.5mm 0;"><strong>Création / Destruction</strong></p>
+    <ul>
+      <li><strong><code>«create»</code></strong> sur une flèche pleine = appel constructeur. La lifeline cible <em>naît</em> à la pointe (rectangle d'instance apparaît à hauteur du message, pas en haut).</li>
+      <li><strong>Croix ✕ rouge</strong> + lifeline en pointillé en-dessous = <strong>destruction</strong> (mot-clé <code>destroy</code>). Sémantique : objet sorti de portée, GC, ou fermeture explicite (<code>close()</code>, <code>dispose()</code>).</li>
+    </ul>
+    <p class="box" style="margin-top: 0.6mm;"><strong>Mantra</strong> : pleine pour appeler, pointillée pour retourner. <code>«create»</code> fait naître, ✕ fait mourir.</p>
+  </div>
+</div>
+
+<h2>2 · Patron OBSERVATEUR (Q6 type)</h2>
+<p>Le <strong>Sujet</strong> notifie ses <strong>Observateurs</strong> automatiquement quand son état change.</p>
+<pre><code>interface Observateur { void notification(); }
+
+class Sujet {
+    private List&lt;Observateur&gt; obs = new ArrayList&lt;&gt;();
+    private int valeur;
+    public void inscrire(Observateur o)    { obs.add(o); }
+    public void desinscrire(Observateur o) { obs.remove(o); }
+    public void setValeur(int v) {
+        this.valeur = v;
+        for (Observateur o : obs) o.notification();   // notifier tous
+    }
+}</code></pre>
+<p class="note"><strong>Cas Q6 2024</strong> : seuil logger = min des seuils sorties → inscrire le logger comme observateur de chaque sortie ; à chaque setSeuil(s), la sortie notifie le logger qui recalcule.</p>
+
+<h2>2.bis · Architecture STRUCTURELLE fil-rouge — réutilisable n'importe quel thème</h2>
+<p>Système composite que le sujet construit toujours : un <strong>Pilote</strong> contient des <strong>Services</strong> pluggables, factorisés par une classe abstraite, déclinés en concrètes.</p>
+<pre><code>[Pilote] ◇—* [Service] «interface»
+                  ▲ implements
+            [ServiceAbstrait]  ← factorise (seuil, helpers…)
+                  ▲ extends
+       ┌──────────┴──────────┐
+   [ServiceA]            [ServiceB]</code></pre>
+<pre><code>public interface Service { void publier(Info i); int getSeuil(); void setSeuil(int s); }
+
+public abstract class ServiceAbstrait implements Service {
+    private int seuil;
+    public ServiceAbstrait(int seuil) { this.seuil = seuil; }
+    public int getSeuil()       { return seuil; }
+    public void setSeuil(int s) { this.seuil = s; }
+}
+public class ServiceA extends ServiceAbstrait {
+    public ServiceA(int seuil) { super(seuil); }
+    public void publier(Info i) { /* impl A */ }
+}</code></pre>
+<p class="note">→ Thème inconnu (cache, parser, event-bus, agenda…) ? Pose-toi : <em>qui est le Pilote ? le Service pluggable ? qu'est-ce qui se factorise ?</em> Tu retombes sur ce squelette en 2 min.</p>
+
+<h2>3 · Squelette LOGGER (Exo 3 type — 25 lignes à savoir écrire)</h2>
+<pre><code>public class Logger {
+    final private String contexte;
+    final private Niveau seuil;
+
+    public Logger(String contexte, Niveau seuil) {
+        this.contexte = contexte;
+        this.seuil = seuil;
+    }
+    public Logger(String contexte) {
+        this(contexte, Niveau.AVERTISSEMENT);     // chaînage de constructeurs
+    }
+
+    protected void log(String contexte, Niveau niveau, String message) {
+        InfoLog info = new InfoLog(contexte, niveau, message);
+        if (niveau.compareTo(this.seuil) &gt;= 0) {  // enum implémente Comparable
+            System.out.println(info);
+        }
+    }
+
+    final public void debug(String m)         { log(contexte, Niveau.DEBUG, m); }
+    final public void info(String m)          { log(contexte, Niveau.INFO, m); }
+    final public void avertissement(String m) { log(contexte, Niveau.AVERTISSEMENT, m); }
+    final public void erreur(String m)        { log(contexte, Niveau.ERREUR, m); }
+    final public void fatal(String m)         { log(contexte, Niveau.FATAL, m); }
+}</code></pre>
+<p class="note"><strong>Points-clés</strong> : 2 constructeurs (le 2ᵉ délègue via <code>this(...)</code>) · <code>final private</code> (style prof) · <code>final public void</code> sur les 5 publiques (anti-override) · 1 méthode <code>protected log(...)</code> qui factorise · <code>compareTo</code> car enum est Comparable.</p>
+
+<h2>4 · Polymorphisme — règle en 2 étapes</h2>
+<table>
+<tr><th>Étape</th><th>Quand</th><th>Quoi</th><th>Selon quoi</th></tr>
+<tr><td><strong>Compile</strong></td><td>au build</td><td>choisit la <strong>signature</strong></td><td>type <strong>DÉCLARÉ</strong> du récepteur + type <strong>DÉCLARÉ</strong> de l'arg</td></tr>
+<tr><td><strong>Runtime</strong></td><td>à l'exécution</td><td>choisit l'<strong>implémentation</strong></td><td>type <strong>RÉEL</strong> du récepteur (override le + dérivé)</td></tr>
+</table>
+<p class="box"><strong>Mantra</strong> : <em>type déclaré → signature ; type réel → implémentation.</em></p>
+<ul>
+<li><strong>EC</strong> (erreur compile) : la classe déclarée n'a aucune signature applicable au type d'arg déclaré. Ex : <code>A a = new C(); a.m(unU)</code> où A n'a que <code>m(D)</code> → EC, même si C a <code>m(U)</code>.</li>
+<li><strong>EX</strong> (erreur exécution) : compile OK mais cast invalide. Ex : <code>A a = new C(); B b = (B) a;</code> → ClassCastException si C n'est pas un B.</li>
+<li><strong>Override</strong> = signature exacte identique → remplace. <strong>Overload</strong> = signature différente → ajoute. → <code>B.m(U)</code> ne remplace PAS <code>A.m(D)</code>, il l'ajoute. <code>A.m(D)</code> reste héritée.</li>
+<li><strong>Plus spécifique gagne</strong> : si B voit <code>m(U)</code> et <code>m(D)</code> héritée et qu'on passe un D → <code>m(D)</code> gagne.</li>
+</ul>
+
+</div>
+
+<!-- ============== PAGE 2 (VERSO) ============== -->
+<div class="page">
+
+<h2>5 · Collections — complexités</h2>
+<table>
+<tr><th>Implémentation</th><th>Interface</th><th>get(i)</th><th>add</th><th>contains</th><th>Ordre</th></tr>
+<tr><td><code>ArrayList</code></td><td>List</td><td><strong>O(1)</strong></td><td>O(1)¹</td><td>O(n)</td><td>insertion</td></tr>
+<tr><td><code>LinkedList</code></td><td>List, Deque</td><td>O(n)</td><td>O(1)²</td><td>O(n)</td><td>insertion</td></tr>
+<tr><td><code>HashSet</code></td><td>Set</td><td>—</td><td><strong>O(1)</strong></td><td><strong>O(1)</strong></td><td>aucun</td></tr>
+<tr><td><code>LinkedHashSet</code></td><td>Set</td><td>—</td><td>O(1)</td><td>O(1)</td><td>insertion</td></tr>
+<tr><td><code>TreeSet</code></td><td>Set, SortedSet</td><td>—</td><td>O(log n)</td><td>O(log n)</td><td>tri naturel/Comparator</td></tr>
+<tr><td><code>HashMap</code></td><td>Map</td><td>—</td><td><strong>O(1)</strong></td><td><strong>O(1)</strong></td><td>aucun</td></tr>
+<tr><td><code>TreeMap</code></td><td>Map, SortedMap</td><td>—</td><td>O(log n)</td><td>O(log n)</td><td>tri des clés</td></tr>
+</table>
+<p class="note">¹ amorti en fin / O(n) au milieu. ² avec Iterator courant / O(n) sinon.</p>
+<ul>
+<li><strong>Map non-Collection</strong> : <code>containsKey(K)</code> / <code>containsValue(V)</code> / <code>keySet()</code> / <code>values()</code> / <code>entrySet()</code>.</li>
+<li><strong>computeIfAbsent</strong> : <code>map.computeIfAbsent(key, k -&gt; new V())</code> — get+put atomique. Pratique cache (Q5.2 sujet 2024).</li>
+<li><strong>RandomAccess</strong> = interface de marquage (<em>vide</em>). Implémentée par ArrayList. Indique <code>get(i)</code> en O(1). Permet : <code>if (l instanceof RandomAccess) for(i)... else for-each</code>.</li>
+<li><strong>Contrat equals/hashCode</strong> : <code>a.equals(b) ⇒ a.hashCode() == b.hashCode()</code>. Si tu redéfinis <code>equals</code> sans <code>hashCode</code> → HashSet/HashMap silencieusement cassés.</li>
+</ul>
+
+<h2>6 · Swing — pattern listener</h2>
+<pre><code>public class Vue {
+    private JTextField zone = new JTextField(10);
+    private JButton bouton = new JButton("OK");
+
+    public Vue() { bouton.addActionListener(new ActionBouton()); }
+
+    class ActionBouton implements ActionListener {
+        @Override public void actionPerformed(ActionEvent ev) {
+            System.out.println(zone.getText());
+        }
+    }
+}</code></pre>
+<p class="note"><strong>3 variantes</strong> : classe membre (ci-dessus) · classe anonyme <code>new ActionListener() { ... }</code> · lambda <code>ev -&gt; ...</code>. <strong>EDT</strong> : <code>EventQueue.invokeLater(() -&gt; new MaFenetre())</code>. <strong>Pour add() à chaud</strong> : <code>container.revalidate(); container.repaint();</code>.</p>
+
+<h3>Squelette IHM complète (cas 2016 / 2015)</h3>
+<pre><code>public class VueSwing {
+    final private JFrame fenetre = new JFrame("Titre");
+    final private JTextField zone = new JTextField(10);
+    final private JButton ok = new JButton("OK");
+    public VueSwing() { initComponents(); fenetre.pack(); fenetre.setVisible(true); }
+    private void initComponents() {
+        JPanel p = new JPanel();        // FlowLayout par défaut
+        p.add(new JLabel("Saisie : "));
+        p.add(zone);
+        p.add(ok);
+        fenetre.getContentPane().add(p);   // BorderLayout par défaut → CENTER
+        ok.addActionListener(ev -&gt; System.out.println(zone.getText()));
+    }
+    public static void main(String[] args) { EventQueue.invokeLater(() -&gt; new VueSwing()); }
+}</code></pre>
+
+<h3>Squelette MouseListener avec validation (cas 2017 IntegerField)</h3>
+<pre><code>public class IntegerField extends JTextField {
+    public IntegerField() {
+        super(10);
+        addMouseListener(new MouseAdapter() {     // override partiel
+            @Override public void mouseEntered(MouseEvent e) {
+                IntegerField.this.setBackground(Color.WHITE);
+            }
+            @Override public void mouseExited(MouseEvent e) {
+                try {
+                    Integer.parseInt(IntegerField.this.getText());
+                    IntegerField.this.setBackground(Color.WHITE);
+                } catch (NumberFormatException ex) {
+                    IntegerField.this.setBackground(Color.RED);
+                }
+            }
+        });
+    }
+}</code></pre>
+<p class="note"><code>IntegerField.this</code> (et non <code>this</code>) pour référencer l'instance englobante depuis la classe anonyme.</p>
+
+<div class="cols2">
+
+<h2>7 · UML — symboles ↔ Java</h2>
+<table>
+<tr><th>Notation</th><th>Sens</th><th>Java</th></tr>
+<tr><td><code>A ──▷ B</code> (triangle plein)</td><td>A hérite de B</td><td><code>class A extends B</code></td></tr>
+<tr><td><code>A ┄┄▷ I</code> (triangle pointillé)</td><td>A réalise I</td><td><code>class A implements I</code></td></tr>
+<tr><td><code>A ◇─── B</code> (losange creux)</td><td>A agrège B (B vit aussi sans A)</td><td>attribut <code>B b</code></td></tr>
+<tr><td><code>A ◆─── B</code> (losange plein)</td><td>A compose B (B ne vit pas sans A)</td><td>attribut + cycle de vie lié</td></tr>
+<tr><td><code>1</code>, <code>*</code>, <code>0..1</code>, <code>1..*</code></td><td>multiplicités</td><td>scalaire / <code>Collection&lt;B&gt;</code></td></tr>
+</table>
+<p class="note"><strong>Visibilité</strong> : <code>+</code> public, <code>#</code> protected, <code>-</code> private. <strong>Séquence</strong> : <code>«create»</code> = appel constructeur · activation = bande verticale · croix × en bout de lifeline = exception/destruction · auto-appel = arc retour.</p>
+
+<h2>8 · Exceptions — pattern wrap-main (Exo 2 type)</h2>
+<pre><code>public static void main(String[] args) {
+    try {
+        // ... tout le code main initial
+        nombre = Integer.valueOf(args[0]);
+    } catch (NumberFormatException e) {
+        logger.fatal("Pas un nombre !");
+        System.out.println("Le paramètre doit être un entier.");
+    }
+}</code></pre>
+<p class="note"><code>NumberFormatException</code> ⊂ <code>IllegalArgumentException</code> ⊂ <code>RuntimeException</code> (unchecked, mais attrapable). <strong>Try DANS la boucle</strong> : on continue après l'exception. <strong>Try AUTOUR</strong> : on arrête au 1er échec.</p>
+
+<h2>9 · Conventions du prof (Cregut)</h2>
+<ul>
+<li><code>final private</code> sur attributs (ordre inversé vs Sun, mais cohérent dans le corrigé)</li>
+<li><code>final public void</code> sur méthodes pour empêcher l'override accidentel</li>
+<li><code>@Override</code> systématique</li>
+<li>Méthodes en français : <code>avertissement</code>, <code>ajouterSortie</code>, <code>supprimerSortie</code>, <code>publier</code></li>
+<li>Pas d'imports dans les snippets courts ; <code>import java.util.*</code> si code complet</li>
+<li><code>this(...)</code> pour chaîner constructeurs · <code>super(...)</code> pour parent</li>
+<li><code>protected</code> pour méthodes factorisées</li>
+</ul>
+
+<h2>10 · Pièges classiques</h2>
+<ol>
+<li><strong>Marker interface</strong> = vide (RandomAccess, Cloneable, Serializable). Étiquette type, pas contrat de méthode. 10 fausses réponses au corrigé 2024 confondaient avec mémoire bas niveau.</li>
+<li><strong>equals sans hashCode</strong> → HashSet/HashMap silencieusement cassés.</li>
+<li><strong>Set ≠ List</strong> : Set rejette doublons, pas d'index. List accepte doublons + index.</li>
+<li><strong>HashSet contains</strong> O(1) moyen mais O(n) si collisions.</li>
+<li><strong>Override ≠ Overload</strong> : signature identique = override. Différente = overload.</li>
+<li><strong>Méthode-plus-spécifique</strong> : <code>m(D)</code> gagne sur <code>m(U)</code> quand l'arg est D.</li>
+<li><strong>Swing hors EDT</strong> = indéfini. Tout passe par <code>EventQueue.invokeLater</code>.</li>
+<li><strong>this(...)</strong> doit être 1ère instruction d'un constructeur.</li>
+</ol>
+
+<h2>11 · Checklist d'attaque — thème inconnu</h2>
+<ol>
+<li><strong>Factorisation 5→1 ?</strong> → méthode <code>protected</code> qui factorise (Logger : 5 niveaux → <code>log(...)</code>).</li>
+<li><strong>Hiérarchie pluggable ?</strong> → interface + abstrait + concrètes (§2.bis).</li>
+<li><strong>Mémoire d'objets par clé ?</strong> → <code>Map&lt;String,T&gt;</code> + <code>computeIfAbsent</code>.</li>
+<li><strong>Changement d'état qui notifie ?</strong> → Observateur (§2).</li>
+<li><strong>IHM Swing ?</strong> → §6 (JFrame + pack + invokeLater + addActionListener). MouseListener → MouseAdapter.</li>
+</ol>
+
+<h2>12 · Ordre de bataille (1h30)</h2>
+<table>
+<tr><th>Min</th><th>Action</th></tr>
+<tr><td>0-5</td><td>Lecture, mapper sur §11</td></tr>
+<tr><td>5-25</td><td>Exo 1 (~14 pts) — §4 + §10.1 + §6 + §1</td></tr>
+<tr><td>25-35</td><td>Exo 2 (~3 pts) — wrap-main §8</td></tr>
+<tr><td>35-55</td><td>Exo 3 (~6 pts) — squelette §3</td></tr>
+<tr><td>55-80</td><td>Exo 4 (~10 pts) — UML §7 + §2.bis</td></tr>
+<tr><td>80-85</td><td>Exo 5 (~4 pts) — Map + computeIfAbsent</td></tr>
+<tr><td>85-90</td><td>Exo 6 (~3 pts) — patron (Observateur §2)</td></tr>
+</table>
+<p class="box"><strong>Si cales &gt;2 min : passe</strong>, reviens à la fin. Toutes les réponses sont sur cette feuille.</p>
+
+</div>
+
+</div>
+</body>
+</html>
