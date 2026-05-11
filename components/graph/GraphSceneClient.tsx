@@ -22,7 +22,7 @@
  */
 
 import * as React from "react";
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import * as THREE from "three";
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
@@ -87,24 +87,14 @@ function buildGraphData(): GraphData {
     domain: a.domain,
   }));
 
-  // Ajouter quelques placeholders "à venir" pour que le graphe ait de la
-  // matière visuelle dès maintenant. Seront remplacés au fil de l'ajout de
-  // dossiers réels dans la registry.
+  // Placeholders pour densifier le graphe tant qu'il y a peu d'anomalies.
   nodes.push({ id: "future-2", label: "À venir", placeholder: true });
   nodes.push({ id: "future-3", label: "À venir", placeholder: true });
 
-  // Connexions arbitraires (à substancier plus tard avec une relation
-  // sémantique réelle entre matières — couche partagée du substrat, etc.).
-  const links: GraphLink[] = [];
-  for (let i = 0; i < nodes.length - 1; i++) {
-    links.push({ source: nodes[i].id, target: nodes[i + 1].id });
-  }
-  // boucle de fermeture pour un layout plus rond
-  if (nodes.length >= 3) {
-    links.push({ source: nodes[nodes.length - 1].id, target: nodes[0].id });
-  }
-
-  return { nodes, links };
+  // Pas de links : la sémantique "lien entre matières" est creuse à ce stade,
+  // et leur rendu produisait un cercle visible reliant les bulles. Le layout
+  // tient sur la répulsion mutuelle des nodes (forces de d3-force-3d).
+  return { nodes, links: [] };
 }
 
 function GraphContent({
@@ -127,9 +117,20 @@ function GraphContent({
   // any-typed ref — r3f-forcegraph's TS types don't expose tickFrame() cleanly
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const fgRef = useRef<any>(null);
+  const groupRef = useRef<THREE.Group>(null);
   const materialsRef = useRef<BubbleMaterial[]>([]);
   const camera = useThree((s) => s.camera);
   const flyEndFiredRef = useRef<string | null>(null);
+
+  // Tune les forces d3 après le mount : on veut une répulsion plus forte pour
+  // que les bulles ne se chevauchent pas (sans links pour les rapprocher, la
+  // charge par défaut n'écarte pas assez à BUBBLE_RADIUS=14).
+  useEffect(() => {
+    const fg = fgRef.current;
+    if (!fg) return;
+    const charge = fg.d3Force?.("charge");
+    charge?.strength?.(-180);
+  }, []);
 
   const nodeThreeObject = useCallback((node: object) => {
     const n = node as GraphNode;
@@ -152,6 +153,13 @@ function GraphContent({
     const t = state.clock.elapsedTime;
     for (const mat of materialsRef.current) {
       updateBubbleMaterial(mat, dt, t);
+    }
+
+    // Gravitation : rotation très lente de l'ensemble du graphe autour de
+    // l'axe Y — ~1 tour toutes les 90s. Pausé pendant le fly pour éviter
+    // qu'une bulle qui s'éloigne perturbe la cible cinématique.
+    if (groupRef.current && !flyRef.current) {
+      groupRef.current.rotation.y += dt * 0.07;
     }
 
     // === Camera fly-to (snapshot at click time) ===
@@ -187,22 +195,24 @@ function GraphContent({
   });
 
   return (
-    <R3fForceGraph
-      ref={fgRef}
-      graphData={graphData}
-      nodeThreeObject={nodeThreeObject}
-      nodeRelSize={BUBBLE_RADIUS}
-      nodeLabel="label"
-      linkColor={() => "#7a96d6"}
-      linkOpacity={0.18}
-      linkWidth={0.4}
-      nodeOpacity={1}
-      enableNodeDrag={!isFlying}
-      onNodeHover={(node: object | null) =>
-        onNodeHover((node as GraphNode | null) ?? null)
-      }
-      onNodeClick={(node: object) => onNodeClick(node as GraphNode)}
-    />
+    <group ref={groupRef}>
+      <R3fForceGraph
+        ref={fgRef}
+        graphData={graphData}
+        nodeThreeObject={nodeThreeObject}
+        nodeRelSize={BUBBLE_RADIUS}
+        nodeLabel="label"
+        nodeOpacity={1}
+        // Pas de links visibles — sémantique pas encore définie. Le layout
+        // tient par la répulsion mutuelle (charge ajustée plus haut).
+        linkVisibility={false}
+        enableNodeDrag={!isFlying}
+        onNodeHover={(node: object | null) =>
+          onNodeHover((node as GraphNode | null) ?? null)
+        }
+        onNodeClick={(node: object) => onNodeClick(node as GraphNode)}
+      />
+    </group>
   );
 }
 
