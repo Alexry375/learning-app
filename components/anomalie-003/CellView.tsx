@@ -44,6 +44,22 @@ export function CellView({ cell, total }: Props) {
     setAttempts(0);
   }, [cell.id, cell.starterCode]);
 
+  // Easter egg : 5+ occurrences de fork() dans le code → spawn fictif
+  useEffect(() => {
+    const matches = code.match(/\bfork\s*\(/g);
+    if (matches && matches.length >= 5 && !state.cellsCompleted.has(`__easter_fork_${cell.id}`)) {
+      dispatch({ type: "complete-cell", cellId: `__easter_fork_${cell.id}` });
+      dispatch({ type: "spawn-proc", n: 32 });
+      dispatch({
+        type: "alert",
+        level: "warn",
+        message: "fork bomb detected",
+        detail:
+          "32 PIDs fictifs spawnés. Le kernel a contenu la dérive — ulimit -u protégeait. Ne fais pas ça pour de vrai.",
+      });
+    }
+  }, [code, cell.id, dispatch, state.cellsCompleted]);
+
   async function handleCompile() {
     setPhase("compiling");
     setValidationMsg(null);

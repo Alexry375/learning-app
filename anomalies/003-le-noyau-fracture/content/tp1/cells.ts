@@ -130,15 +130,15 @@ int main(void) {
     challenge: {
       kind: "compile",
       prompt:
-        "Modifie le code pour que l'ordre soit **déterministe** : le père affiche TOUJOURS en premier, puis le fils. La sortie attendue (strict) :\n\n```\npere, fils=<N>\nfils\n```\n\nIndice : il existe une syscall qui bloque le père jusqu'à mort du fils.",
+        "Modifie le code pour que l'ordre soit **déterministe** : le **fils affiche d'abord**, le père ensuite. La sortie attendue (strict) :\n\n```\nfils\npere, fils=<N>\n```\n\nIndice : il existe une syscall qui bloque le père jusqu'à mort du fils. Place-la AVANT le `printf` du père.",
       validate: {
         type: "and",
         rules: [
-          { type: "stdout-matches", pattern: "^pere, fils=\\d+\\nfils\\n$" },
+          { type: "stdout-matches", pattern: "^fils\\npere, fils=\\d+\\n$" },
           { type: "exit-code", code: 0 },
         ],
       },
-      hint: "Mets l'attente DANS la branche fils ou utilise `wait(NULL)` côté père. La branche fils doit s'exécuter puis terminer, le père doit imprimer EN PREMIER. Réfléchis à l'ordre temporel.",
+      hint: "Dans la branche père : appelle `wait(NULL)` AVANT le `printf`. Le père est ainsi bloqué jusqu'à ce que le fils ait fini son printf et soit mort. Garantit l'ordre.",
     },
     refs: [
       {

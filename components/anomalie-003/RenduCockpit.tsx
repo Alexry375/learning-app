@@ -34,8 +34,22 @@ function Body({ slug, tpMeta, content }: Props) {
   const [code, setCode] = useState(content.renduFile.initialContent);
   const [validationMsg, setValidationMsg] = useState<string | null>(null);
   const [validated, setValidated] = useState(false);
+  const [vimEaster, setVimEaster] = useState(false);
   const { run, running, result } = useCompileC();
-  const { observeSource, observeRunResult } = useKernel();
+  const { observeSource, observeRunResult, dispatch } = useKernel();
+
+  // Easter egg : :wq dans le code → respect vim
+  useEffect(() => {
+    if (!vimEaster && /(^|\n):wq(\s|$)/.test(code)) {
+      setVimEaster(true);
+      dispatch({
+        type: "alert",
+        level: "info",
+        message: "vim user detected. respect.",
+        detail: "Le kernel reconnaît la séquence :wq dans la source. Note interne archivée.",
+      });
+    }
+  }, [code, vimEaster, dispatch]);
 
   // Persistance localStorage
   useEffect(() => {
