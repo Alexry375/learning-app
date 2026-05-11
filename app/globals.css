@@ -823,6 +823,210 @@ html, body {
 }
 
 /* ===========================================================
+   Anomalie #003 — Couche Allocataire (kernel cyan/orange)
+   Opt-in via [data-anomalie="003"] sur layout
+   =========================================================== */
+[data-anomalie="003"] {
+  --allocataire-bg-void:     #050813;
+  --allocataire-deck:        #0b0f24;
+  --allocataire-deck-2:      #131838;
+  --allocataire-deck-3:      #1a2050;
+
+  --allocataire-kernel:      #9dffd1;
+  --allocataire-kernel-dim:  #4d8a72;
+  --allocataire-userspace:   #ffd06f;
+  --allocataire-userspace-dim:#8a6f33;
+
+  --allocataire-syscall:     #5ec1ff;
+  --allocataire-signal:      #ff6f5b;
+  --allocataire-panic:       #ff3a3a;
+
+  --allocataire-ink:         #e8eef7;
+  --allocataire-ink-dim:     #8492b4;
+  --allocataire-ink-faint:   #4a557a;
+
+  --allocataire-rule:        #1c2348;
+  --allocataire-rule-strong: #2d3568;
+
+  background: var(--allocataire-bg-void);
+  color: var(--allocataire-ink);
+  min-height: 100vh;
+}
+
+[data-anomalie="003"] ::selection {
+  background: var(--allocataire-kernel);
+  color: var(--allocataire-bg-void);
+}
+
+/* Pulse kernel — 0.8Hz, calme */
+@keyframes kernel-pulse {
+  0%, 100% { opacity: 0.9; }
+  50% { opacity: 0.35; }
+}
+
+.kernel-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--allocataire-kernel);
+  box-shadow: 0 0 8px var(--allocataire-kernel);
+  animation: kernel-pulse 1.25s ease-in-out infinite;
+}
+
+.kernel-dot[data-state="alert"] {
+  background: var(--allocataire-panic);
+  box-shadow: 0 0 8px var(--allocataire-panic);
+}
+
+/* Bar dmesg-style */
+.dmesg-line {
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  line-height: 1.35;
+  white-space: pre-wrap;
+  color: var(--allocataire-ink-dim);
+}
+
+.dmesg-time {
+  color: var(--allocataire-ink-faint);
+}
+
+.dmesg-info { color: var(--allocataire-kernel); }
+.dmesg-warn { color: var(--allocataire-userspace); }
+.dmesg-alert { color: var(--allocataire-panic); }
+.dmesg-syscall { color: var(--allocataire-syscall); }
+.dmesg-signal { color: var(--allocataire-signal); }
+
+/* Cell card */
+.cell-card {
+  background: rgba(11, 15, 36, 0.65);
+  border: 1px solid var(--allocataire-rule);
+  position: relative;
+  transition:
+    border-color 480ms cubic-bezier(0.16, 1, 0.3, 1),
+    background 480ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.cell-card[data-state="active"] {
+  background: rgba(19, 24, 56, 0.85);
+  border-color: var(--allocataire-rule-strong);
+}
+
+.cell-card[data-state="ok"] {
+  border-color: var(--allocataire-kernel-dim);
+}
+
+.cell-card[data-state="fail"] {
+  border-color: var(--allocataire-panic);
+}
+
+.cell-card[data-state="sealed"] {
+  opacity: 0.55;
+  pointer-events: auto;
+}
+
+.cell-card[data-state="sealed"]::after {
+  content: "COMPLÉTÉ";
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  font-family: var(--font-mono);
+  font-size: 0.55rem;
+  letter-spacing: 0.22em;
+  color: var(--allocataire-kernel-dim);
+  border: 1px solid var(--allocataire-kernel-dim);
+  padding: 2px 8px;
+  pointer-events: none;
+}
+
+/* Bouton kernel */
+.btn-kernel {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.45rem 1.1rem;
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  background: transparent;
+  border: 1px solid var(--allocataire-rule-strong);
+  color: var(--allocataire-ink);
+  cursor: pointer;
+  transition:
+    border-color 220ms cubic-bezier(0.16, 1, 0.3, 1),
+    color 220ms cubic-bezier(0.16, 1, 0.3, 1),
+    background 220ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.btn-kernel:hover:not(:disabled) {
+  border-color: var(--allocataire-kernel);
+  color: var(--allocataire-kernel);
+  background: rgba(157, 255, 209, 0.04);
+}
+
+.btn-kernel:active:not(:disabled) {
+  transform: translateY(1px);
+  background: rgba(157, 255, 209, 0.10);
+}
+
+.btn-kernel:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.btn-kernel[data-variant="syscall"]:hover:not(:disabled) {
+  border-color: var(--allocataire-syscall);
+  color: var(--allocataire-syscall);
+  background: rgba(94, 193, 255, 0.04);
+}
+
+.btn-kernel[data-variant="signal"]:hover:not(:disabled) {
+  border-color: var(--allocataire-signal);
+  color: var(--allocataire-signal);
+  background: rgba(255, 111, 91, 0.04);
+}
+
+/* Kernel boot ASCII typewriter */
+@keyframes kernel-cursor-blink {
+  0%, 49% { opacity: 1; }
+  50%, 100% { opacity: 0; }
+}
+
+.kernel-cursor::after {
+  content: "▌";
+  display: inline-block;
+  margin-left: 2px;
+  color: var(--allocataire-kernel);
+  animation: kernel-cursor-blink 0.9s steps(2) infinite;
+}
+
+/* Slide-in alert */
+@keyframes kernel-alert-slide {
+  0% { transform: translateY(-12px); opacity: 0; }
+  100% { transform: translateY(0); opacity: 1; }
+}
+
+.kernel-alert-enter {
+  animation: kernel-alert-slide 320ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+/* Hex grid décor pour KernelMap */
+.kernel-map-cell {
+  fill: var(--allocataire-rule);
+  transition: fill 480ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.kernel-map-cell[data-done="true"] {
+  fill: var(--allocataire-kernel-dim);
+}
+
+.kernel-map-cell[data-active="true"] {
+  fill: var(--allocataire-kernel);
+}
+
+/* ===========================================================
    Reduce motion respect
    =========================================================== */
 @media (prefers-reduced-motion: reduce) {
