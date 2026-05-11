@@ -11,34 +11,12 @@
  * être rendu client-side uniquement.
  */
 
-import { useEffect } from "react";
-import * as THREE from "three";
-import { Canvas, useThree } from "@react-three/fiber";
+import { Canvas } from "@react-three/fiber";
 import { OrbitControls } from "@react-three/drei";
 import { EffectComposer, Bloom } from "@react-three/postprocessing";
-import { RoomEnvironment } from "three/examples/jsm/environments/RoomEnvironment.js";
 import { Bubble } from "./Bubble";
 import { Backdrop } from "./Backdrop";
-
-/**
- * Procedural environment from three/examples — no HDR network fetch, no
- * CDN dependency, no risk of WebGL context loss on weak GPUs. The standalone
- * proto 04 uses this exact pattern.
- */
-function ProceduralEnvironment() {
-  const { gl, scene } = useThree();
-  useEffect(() => {
-    const pmrem = new THREE.PMREMGenerator(gl);
-    const env = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
-    scene.environment = env;
-    return () => {
-      env.dispose();
-      pmrem.dispose();
-      scene.environment = null;
-    };
-  }, [gl, scene]);
-  return null;
-}
+import { ProceduralEnvironment } from "./ProceduralEnvironment";
 
 export default function BubbleSceneClient() {
   return (
