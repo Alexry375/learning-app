@@ -390,7 +390,12 @@ html, body {
   --panel-width-desktop: clamp(420px, 42vw, 580px);
 }
 
-/* ----- Panneau matière split-screen ----- */
+/* ----- Wrapper panel : transparent, simple scaffolding du slide-in -----
+   Itération [23:53] — rupture de format. Le panel n'est plus une fenêtre.
+   Il devient un *scaffolding invisible* dans lequel des cards autonomes
+   sont positionnées en grid. Plus de background global, plus de bordure
+   gauche, plus de glass monolithique : c'est *chaque card* qui porte
+   son propre verre. Le vide entre les cards laisse voir le 3D. */
 .mg-panel {
   position: fixed;
   top: 0;
@@ -398,43 +403,24 @@ html, body {
   bottom: 0;
   width: var(--panel-width-desktop);
   z-index: 70;
-  /* Substrat verre : voile navy translucide. */
-  background: var(--mg-glass-bg);
-  /* Backdrop-filter violent : le 3D iridescent derrière transparaît
-     teinté, saturé, légèrement éclairci (la "lentille" du moodboard).
-     `-webkit-` requis Safari (TP 2026, support stable).
-     Coût GPU : un seul nœud plein-hauteur — acceptable.
-     Note dégradation : si backdrop-filter n'est pas supporté
-     (vieux Firefox < 103, etc.), `--mg-glass-bg` à 0.42 laisse passer
-     un peu de couleur, le rendu reste honnête bien que moins propre. */
-  backdrop-filter: blur(28px) saturate(180%) brightness(1.08);
-  -webkit-backdrop-filter: blur(28px) saturate(180%) brightness(1.08);
-  /* Tranche de verre verticale : transparent → semi-opaque → transparent.
-     `border-image` mange `border-left-style: solid` ci-dessous. */
-  border-left: 1px solid transparent;
-  border-image: linear-gradient(
-    to bottom,
-    rgba(255, 255, 255, 0.10) 0%,
-    rgba(58, 64, 112, 0.5) 50%,
-    rgba(255, 255, 255, 0.10) 100%
-  ) 1;
-  /* Edge highlight haut (1px subtil) — suggère la "lift" / réflexion
-     lumineuse. Pas de drop-shadow externe : le panneau s'immerge dans
-     le 3D, il ne "tombe" pas dessus. */
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.08),
-    inset 1px 0 0 rgba(58, 255, 149, 0.04);
   font-family: var(--font-mono);
   color: var(--ink-primary);
-  /* Closed state : translateX hors écran. La classe `.is-open` fait
-     transitionner vers 0 avec la courbe canonique. Slide-out réutilise
-     une courbe plus sèche via override. */
+  /* Closed state : translateX hors écran. */
   transform: translateX(100%);
-  transition: transform 480ms cubic-bezier(0.16, 1, 0.3, 1);
-  display: flex;
-  flex-direction: column;
+  transition: transform 520ms cubic-bezier(0.16, 1, 0.3, 1);
   pointer-events: auto;
-  overflow: hidden;
+  /* Pas d'overflow:hidden — on veut que certaines cards puissent
+     déborder légèrement à gauche (effet "saigne dans le 3D"). */
+  overflow: visible;
+  /* Tranche de verre fantôme à gauche : 1px gradient phosphor faible.
+     C'est la seule trace visuelle restante du "bord" — elle marque la
+     frontière entre le 3D et la zone d'info sans enfermer dans une boîte. */
+  background: linear-gradient(
+    to right,
+    rgba(58, 255, 149, 0.18) 0px,
+    rgba(58, 255, 149, 0) 1px,
+    transparent 1px
+  );
 }
 
 .mg-panel.is-open {
@@ -443,172 +429,187 @@ html, body {
 
 .mg-panel.is-closing {
   transform: translateX(100%);
-  /* Slide-out : 320ms, courbe plus brutale (sortie sèche). */
   transition: transform 320ms cubic-bezier(0.7, 0, 0.84, 0);
 }
 
-/* Scan-sweep diégétique à l'ouverture — passe une fois verticalement
-   par-dessus le contenu du panneau. Utilitaire `.scan-sweep` existe
-   déjà (cf. plus haut, animation 1.4s) ; on l'overlay avec position
-   absolute pour qu'il ne pousse pas le layout. */
-.mg-panel__scan {
-  position: absolute;
-  inset-inline: 0;
-  top: 0;
-  bottom: 0;
-  pointer-events: none;
-  overflow: hidden;
-  z-index: 1;
-}
-
-.mg-panel__scan-bar {
-  position: absolute;
-  inset-inline: 0;
-  height: 36px;
-  background: linear-gradient(
-    to bottom,
-    transparent 0%,
-    rgba(58, 255, 149, 0.18) 50%,
-    transparent 100%
-  );
-  filter: blur(3px);
-  /* Anim : descend de -10% à 110% en 1100ms, courbe sèche (sortie).
-     Forwards = reste hors-écran à la fin. */
-  animation: mg-scan-sweep 1100ms cubic-bezier(0.7, 0, 0.84, 0) forwards;
-}
-
-@keyframes mg-scan-sweep {
-  0% { transform: translateY(-10%); opacity: 0; }
-  10% { opacity: 0.9; }
-  85% { opacity: 0.85; }
-  100% { transform: translateY(110%); opacity: 0; }
-}
-
-/* ----- Décor : grille radar background + watermark CLASSIFIED ----- */
-/* Grille radar SVG inline — cercles concentriques + lignes radiales.
-   Opacity volontairement faible (0.06) — c'est un *substrat texture*,
-   pas une couche d'information. Centré sur le coin haut-gauche du panel
-   pour donner une asymétrie. Pulse lent (4s) pour signal "live". */
-.mg-panel__radar {
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-  z-index: 0;
-  opacity: 0.07;
-  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 600 600'><g fill='none' stroke='%233aff95' stroke-width='0.5'><circle cx='80' cy='120' r='80'/><circle cx='80' cy='120' r='160'/><circle cx='80' cy='120' r='240'/><circle cx='80' cy='120' r='320'/><circle cx='80' cy='120' r='400'/><circle cx='80' cy='120' r='480'/><line x1='80' y1='120' x2='80' y2='600'/><line x1='80' y1='120' x2='600' y2='120'/><line x1='80' y1='120' x2='600' y2='480'/><line x1='80' y1='120' x2='600' y2='240'/><line x1='80' y1='120' x2='400' y2='600'/></g></svg>");
-  background-size: 100% auto;
-  background-repeat: no-repeat;
-  background-position: top left;
-  animation: mg-radar-pulse 5.2s ease-in-out infinite;
-}
-
-@keyframes mg-radar-pulse {
-  0%, 100% { opacity: 0.05; }
-  50% { opacity: 0.085; }
-}
-
-/* Watermark CLASSIFIED rotation -8°. Énorme, opacité quasi-nulle.
-   Position bas-droite pour ne pas concurrencer le titre. Le `mix-blend`
-   le fond légèrement dans le 3D derrière (multiply rendrait trop sombre,
-   `screen` éclaircit subtilement). */
-.mg-panel__watermark {
-  position: absolute;
-  bottom: 18%;
-  right: -8%;
-  z-index: 0;
-  pointer-events: none;
-  font-family: var(--font-mono);
-  font-size: 5.2rem;
-  font-weight: 700;
-  letter-spacing: 0.24em;
-  color: var(--rust);
-  opacity: 0.06;
-  transform: rotate(-8deg);
-  user-select: none;
-  white-space: nowrap;
-  text-shadow: 0 0 6px rgba(139, 58, 31, 0.4);
-}
-
-/* ----- HEADER : tagline · clock · close + titre monumental ----- */
-.mg-panel__header {
+/* ----- Layout : grid 12 colonnes pour positionner les cards ----- */
+/* Chaque card pose son propre `grid-column` / `grid-row` ; cette grid
+   est la *scène* sur laquelle elles vivent. Padding latéral asymétrique
+   (plus à gauche qu'à droite) pour créer un biais visuel. */
+.mg-panel__layout {
   position: relative;
-  z-index: 2;
-  padding: 1.7rem 2.2rem 1.5rem;
-  border-bottom: 1px solid rgba(58, 64, 112, 0.45);
+  height: 100%;
+  display: grid;
+  grid-template-columns: repeat(12, 1fr);
+  grid-auto-rows: min-content;
+  align-content: start;
+  gap: 0.8rem 0.5rem;
+  padding: 1.6rem 1.4rem 1.8rem 1.8rem;
+  overflow-y: auto;
+  overflow-x: visible;
 }
 
-.mg-panel__topline {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 1rem;
-  font-size: 0.6rem;
-  color: var(--ink-dim);
-  letter-spacing: 0.18em;
-  text-transform: uppercase;
-  margin-bottom: 1.4rem;
+/* Cross-fade du layout entier au swap de matière. */
+.mg-panel__layout.is-fading {
+  opacity: 0;
+  transition: opacity 120ms cubic-bezier(0.16, 1, 0.3, 1);
 }
 
-.mg-panel__code-tag {
+/* ----- Base commune .mg-card : verre + bordure tranche ----- */
+.mg-card {
+  position: relative;
+  background: rgba(14, 18, 38, 0.55);
+  backdrop-filter: blur(22px) saturate(170%) brightness(1.06);
+  -webkit-backdrop-filter: blur(22px) saturate(170%) brightness(1.06);
+  border: 1px solid transparent;
+  border-image: linear-gradient(
+    135deg,
+    rgba(255, 255, 255, 0.12) 0%,
+    rgba(58, 64, 112, 0.55) 50%,
+    rgba(255, 255, 255, 0.05) 100%
+  ) 1;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.08),
+    0 8px 24px rgba(0, 0, 0, 0.3);
+  color: var(--ink-primary);
+}
+
+/* Coin haut-gauche et bas-droit en équerre — détail Mass Effect / dossier
+   classifié. Posés via pseudo-éléments sur certaines cards (data-attr). */
+.mg-card__corner {
+  position: absolute;
+  width: 10px;
+  height: 10px;
+  pointer-events: none;
+}
+.mg-card__corner--tl {
+  top: -1px;
+  left: -1px;
+  border-top: 1px solid var(--phosphor);
+  border-left: 1px solid var(--phosphor);
+  box-shadow: 0 0 4px rgba(58, 255, 149, 0.6);
+}
+.mg-card__corner--br {
+  bottom: -1px;
+  right: -1px;
+  border-bottom: 1px solid var(--classified);
+  border-right: 1px solid var(--classified);
+  box-shadow: 0 0 4px rgba(212, 165, 72, 0.5);
+}
+
+/* ----- Cascade d'apparition — chaque card entre depuis sa direction ----- */
+/* `data-card="X"` cible chaque card pour son starting transform. */
+.mg-panel__layout.is-entering .mg-card {
+  opacity: 0;
+  animation: mg-card-in 540ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+@keyframes mg-card-in {
+  from { opacity: 0; transform: var(--mg-card-from, translateY(8px)); }
+  to { opacity: 1; transform: translate(0, 0) scale(1); }
+}
+
+.mg-panel__layout.is-entering [data-card="tag"]       { --mg-card-from: translate(-14px, 0); animation-delay: 100ms; }
+.mg-panel__layout.is-entering [data-card="meta"]      { --mg-card-from: translate(0, -10px); animation-delay: 100ms; }
+.mg-panel__layout.is-entering [data-card="title"]     { --mg-card-from: translate(-22px, 6px) scale(0.96); animation-delay: 220ms; animation-duration: 680ms; }
+.mg-panel__layout.is-entering [data-card="signal"]    { --mg-card-from: translate(18px, 0); animation-delay: 360ms; }
+.mg-panel__layout.is-entering [data-card="telemetry"] { --mg-card-from: translate(0, 12px) scale(0.97); animation-delay: 480ms; }
+.mg-panel__layout.is-entering [data-card="detail"]    { --mg-card-from: translate(22px, 0); animation-delay: 600ms; }
+.mg-panel__layout.is-entering [data-card="agent"]     { --mg-card-from: translate(-12px, 10px); animation-delay: 720ms; }
+.mg-panel__layout.is-entering [data-card="cta"]       { --mg-card-from: translate(14px, 10px); animation-delay: 800ms; }
+
+/* =========================================================
+   CARD 1 — TAG (haut-gauche, fin et compact)
+   ========================================================= */
+.mg-card--tag {
+  grid-column: 1 / span 8;
+  grid-row: 1;
+  margin-left: -0.4rem; /* déborde légèrement à gauche → "saigne" sur le 3D */
   display: inline-flex;
   align-items: center;
   gap: 0.55rem;
+  padding: 0.55rem 0.9rem;
+  font-size: 0.58rem;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
   color: var(--ink-dim);
+  white-space: nowrap;
+  align-self: start;
 }
 
-/* Petit point classified pulsant à gauche du tag — signal "live". */
-.mg-panel__code-dot {
+.mg-card__dot {
   display: inline-block;
   width: 6px;
   height: 6px;
   border-radius: 50%;
   background: var(--classified);
-  box-shadow: 0 0 6px rgba(212, 165, 72, 0.6);
+  box-shadow: 0 0 8px rgba(212, 165, 72, 0.7);
   animation: mg-dot-pulse 1.8s ease-in-out infinite;
 }
 
 @keyframes mg-dot-pulse {
   0%, 100% { opacity: 1; transform: scale(1); }
-  50% { opacity: 0.45; transform: scale(0.85); }
+  50% { opacity: 0.4; transform: scale(0.8); }
 }
 
-/* Le code lui-même (001, 003…) en mono bold avec spacing serré, pour
-   que le micro-glitch sur un char soit visible sans bouger les voisins. */
-.mg-panel__code-mono {
-  display: inline-block;
-  min-width: 2.2em;
+.mg-card__tag-text {
   font-family: var(--font-mono);
+}
+
+.mg-card__tag-code {
+  display: inline-block;
+  min-width: 2.4em;
+  text-align: center;
   font-weight: 600;
   letter-spacing: 0.08em;
   color: var(--classified);
-  text-align: center;
 }
 
-.mg-panel__hints {
+/* =========================================================
+   CARD 2 — META-CLOCK (haut-droite)
+   ========================================================= */
+.mg-card--meta {
+  grid-column: 9 / span 4;
+  grid-row: 1;
   display: inline-flex;
   align-items: center;
-  gap: 0.8rem;
+  justify-content: flex-end;
+  gap: 0.7rem;
+  padding: 0.55rem 0.9rem;
+  font-size: 0.58rem;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
   color: var(--ink-faint);
+  align-self: start;
 }
 
-.mg-panel__clock {
+.mg-card__clock {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
   font-family: var(--font-mono);
   font-variant-numeric: tabular-nums;
   color: var(--phosphor-dim);
   letter-spacing: 0.08em;
 }
 
-.mg-panel__clock-suffix {
-  color: var(--ink-faint);
-  margin-left: 0.2rem;
-  font-size: 0.55rem;
+.mg-card__clock-dot {
+  color: var(--phosphor);
+  font-size: 0.45rem;
+  animation: mg-dot-pulse 1.4s ease-in-out infinite;
 }
 
-.mg-panel__esc {
+.mg-card__clock-suffix {
+  color: var(--ink-faint);
+  font-size: 0.5rem;
+  margin-left: 0.15rem;
+}
+
+.mg-card__esc {
   color: var(--ink-faint);
 }
 
-.mg-panel__close {
+.mg-card__close {
   background: transparent;
   border: none;
   padding: 0 0.2rem;
@@ -620,179 +621,203 @@ html, body {
   transition: color 220ms cubic-bezier(0.16, 1, 0.3, 1);
 }
 
-.mg-panel__close:hover {
+.mg-card__close:hover {
   color: var(--alert);
 }
 
-/* Titre monumental : numéro géant à gauche, titre à droite — composition
-   asymétrique inspirée Mass Effect briefing / dossier classifié. */
-.mg-panel__title-row {
+/* =========================================================
+   CARD 3 — TITLE (pleine largeur, clip-path coupé en bas-droite)
+   La pièce maîtresse de la composition.
+   ========================================================= */
+.mg-card--title {
+  grid-column: 1 / span 12;
+  grid-row: 2;
+  margin-top: 0.4rem;
+  margin-left: -0.6rem; /* déborde sur le 3D — appui visuel fort */
+  padding: 1.5rem 1.7rem 1.7rem 1.4rem;
   display: grid;
   grid-template-columns: auto 1fr;
   align-items: end;
   gap: 1.1rem;
+  /* Clip-path : coin bas-droite coupé en diagonale (style fragment de
+     dossier classifié / Mass Effect). Les 4 autres coins normaux. */
+  clip-path: polygon(
+    0 0,
+    100% 0,
+    100% calc(100% - 24px),
+    calc(100% - 24px) 100%,
+    0 100%
+  );
+  /* Renforcement glass : titre = focal point, plus opaque, blur plus fort */
+  background: rgba(14, 18, 38, 0.62);
+  backdrop-filter: blur(28px) saturate(180%) brightness(1.08);
+  -webkit-backdrop-filter: blur(28px) saturate(180%) brightness(1.08);
+  /* Le clip-path supprime la bordure visuelle ; on simule via inset shadow. */
+  border: none;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.10),
+    inset 1px 0 0 rgba(58, 255, 149, 0.08),
+    0 12px 36px rgba(0, 0, 0, 0.4);
 }
 
-.mg-panel__number {
+.mg-card__number {
   font-family: var(--font-mono);
   font-weight: 700;
-  font-size: 3.4rem;
-  line-height: 0.9;
-  letter-spacing: -0.02em;
+  font-size: 4rem;
+  line-height: 0.85;
+  letter-spacing: -0.03em;
   color: var(--classified);
   text-shadow:
-    0 0 18px rgba(212, 165, 72, 0.35),
-    0 2px 4px rgba(0, 0, 0, 0.6);
-  /* Subtile gradient pour donner du métal au numéro plutôt qu'un plat. */
+    0 0 22px rgba(212, 165, 72, 0.4),
+    0 3px 6px rgba(0, 0, 0, 0.7);
   background: linear-gradient(
     180deg,
-    var(--classified) 0%,
-    #b88a2a 100%
+    #e8c068 0%,
+    var(--classified) 45%,
+    #8a661c 100%
   );
   -webkit-background-clip: text;
   background-clip: text;
   -webkit-text-fill-color: transparent;
   user-select: none;
+  /* Léger débord vers le haut pour décrocher visuellement. */
+  margin-top: -0.4rem;
 }
 
-.mg-panel__title {
+.mg-card__title-block {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  min-width: 0;
+}
+
+.mg-card__title-pretitle {
+  font-size: 0.56rem;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--phosphor-dim);
+}
+
+.mg-card__title-text {
   font-family: var(--font-mono);
-  font-size: 1.32rem;
+  font-size: 1.55rem;
   font-weight: 500;
-  line-height: 1.25;
+  line-height: 1.15;
   color: var(--ink-primary);
-  margin: 0 0 0.3rem 0;
-  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.6);
+  margin: 0;
+  text-shadow: 0 2px 4px rgba(0, 0, 0, 0.7);
 }
 
-/* ----- BODY : cross-fade + stagger ----- */
-.mg-panel__body {
-  position: relative;
-  z-index: 2;
-  padding: 1.6rem 2.2rem 1.4rem;
-  flex: 1 1 auto;
-  overflow-y: auto;
-  transition: opacity 120ms cubic-bezier(0.16, 1, 0.3, 1);
+/* Bandeau latéral "OUVERT" — petit détail Mass Effect / dossier classifié,
+   posé verticalement sur le bord droit du titre, à moitié hors clip. */
+.mg-card__title-stripe {
+  position: absolute;
+  right: 0.5rem;
+  top: 0.7rem;
+  font-family: var(--font-mono);
+  font-size: 0.5rem;
+  letter-spacing: 0.32em;
+  text-transform: uppercase;
+  color: var(--phosphor);
+  padding: 0.2rem 0.4rem;
+  border: 1px solid var(--phosphor-dim);
+  background: rgba(58, 255, 149, 0.06);
+  text-shadow: 0 0 4px rgba(58, 255, 149, 0.5);
 }
 
-.mg-panel__body.is-fading {
-  opacity: 0;
+/* =========================================================
+   CARD 4 — SIGNAL (décalée à droite)
+   ========================================================= */
+.mg-card--signal {
+  grid-column: 3 / span 10;
+  grid-row: 3;
+  padding: 1rem 1.2rem 1.1rem;
+  margin-top: 0.3rem;
 }
 
-/* Stagger : chaque <section> direct enfant apparaît avec délai. */
-.mg-panel.is-open .mg-panel__body.is-entering > * {
-  opacity: 0;
-  animation: mg-body-fade-in 420ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
-}
-
-.mg-panel.is-open .mg-panel__body.is-entering > *:nth-child(1) { animation-delay: 100ms; }
-.mg-panel.is-open .mg-panel__body.is-entering > *:nth-child(2) { animation-delay: 220ms; }
-.mg-panel.is-open .mg-panel__body.is-entering > *:nth-child(3) { animation-delay: 340ms; }
-.mg-panel.is-open .mg-panel__body.is-entering > *:nth-child(4) { animation-delay: 460ms; }
-
-@keyframes mg-body-fade-in {
-  from { opacity: 0; transform: translateY(6px); }
-  to { opacity: 1; transform: translateY(0); }
-}
-
-/* ----- Sections diamants ◇ ----- */
-.mg-panel__section {
-  margin-bottom: 1.6rem;
-}
-
-.mg-panel__section:last-child {
-  margin-bottom: 0;
-}
-
-.mg-panel__section-label {
+.mg-card__label {
   display: flex;
   align-items: center;
   gap: 0.5rem;
-  margin: 0 0 0.85rem 0;
+  margin: 0 0 0.7rem 0;
   font-family: var(--font-mono);
-  font-size: 0.62rem;
+  font-size: 0.6rem;
   font-weight: 500;
   letter-spacing: 0.22em;
   text-transform: uppercase;
   color: var(--ink-dim);
-  /* Ligne fine qui prolonge le label vers la droite — donne du rythme. */
-  position: relative;
 }
 
-.mg-panel__section-label::after {
+.mg-card__label::after {
   content: "";
   flex: 1;
   height: 1px;
-  background: linear-gradient(
-    to right,
-    rgba(58, 64, 112, 0.5) 0%,
-    transparent 100%
-  );
+  background: linear-gradient(to right, rgba(58, 64, 112, 0.5), transparent);
 }
 
-.mg-panel__diamond {
+.mg-card__diamond {
   color: var(--classified);
   font-size: 0.7rem;
-  /* Léger glow pour qu'il sente le "marqueur classifié". */
-  text-shadow: 0 0 4px rgba(212, 165, 72, 0.4);
+  text-shadow: 0 0 4px rgba(212, 165, 72, 0.5);
 }
 
-/* ----- Signal détecté (paragraphe principal) ----- */
-.mg-panel__symptom {
+.mg-card__signal-body {
   font-family: var(--font-mono);
-  font-size: 0.92rem;
-  line-height: 1.6;
+  font-size: 0.86rem;
+  line-height: 1.55;
   color: var(--ink-primary);
   margin: 0;
-  /* Léger inset à gauche pour distinguer le bloc — comme un blockquote
-     classifié, mais plus discret. */
-  padding-left: 0.9rem;
-  border-left: 1px solid rgba(212, 165, 72, 0.3);
+  padding-left: 0.85rem;
+  border-left: 1px solid rgba(212, 165, 72, 0.35);
   text-shadow: 0 1px 2px rgba(0, 0, 0, 0.5);
 }
 
-/* ----- Télémétrie 3 rangs (clé · barre · valeur) ----- */
-.mg-panel__telemetry {
+/* =========================================================
+   CARD 5 — TELEMETRY (centrée, pleine largeur)
+   ========================================================= */
+.mg-card--telemetry {
+  grid-column: 1 / span 12;
+  grid-row: 4;
+  padding: 1rem 1.2rem 1.1rem;
+}
+
+.mg-card__telemetry {
   display: flex;
   flex-direction: column;
-  gap: 0.7rem;
+  gap: 0.65rem;
 }
 
-.mg-panel__telemetry-row {
+.mg-card__telemetry-row {
   display: grid;
-  grid-template-columns: 88px 1fr 80px;
+  grid-template-columns: 88px 1fr 88px;
   align-items: center;
   gap: 0.9rem;
-  font-family: var(--font-mono);
-  font-size: 0.74rem;
 }
 
-.mg-panel__telemetry-key {
+.mg-card__telemetry-key {
+  font-family: var(--font-mono);
   color: var(--ink-dim);
   letter-spacing: 0.14em;
   text-transform: uppercase;
-  font-size: 0.62rem;
+  font-size: 0.6rem;
 }
 
-.mg-panel__telemetry-bar {
+.mg-card__telemetry-bar {
   position: relative;
   display: block;
-  height: 6px;
+  height: 7px;
   background: rgba(35, 40, 67, 0.6);
   border: 1px solid rgba(58, 64, 112, 0.5);
   overflow: hidden;
 }
 
-.mg-panel__telemetry-bar-fill {
+.mg-card__telemetry-bar-fill {
   display: block;
   height: 100%;
   width: var(--mg-bar-fill, 0%);
   background: var(--mg-bar-color, var(--phosphor));
-  /* Léger glow latéral pour signer que c'est de la "data live". */
   box-shadow: 0 0 6px var(--mg-bar-color, var(--phosphor));
-  /* Anim au mount : width passe de 0 à --mg-bar-fill. La CSS var est
-     résolue dans le keyframes au moment où l'animation s'applique. */
-  animation: mg-bar-fill-in 720ms cubic-bezier(0.16, 1, 0.3, 1) 180ms both;
+  animation: mg-bar-fill-in 720ms cubic-bezier(0.16, 1, 0.3, 1) 520ms both;
 }
 
 @keyframes mg-bar-fill-in {
@@ -800,7 +825,7 @@ html, body {
   to { width: var(--mg-bar-fill, 0%); }
 }
 
-.mg-panel__telemetry-val {
+.mg-card__telemetry-val {
   font-family: var(--font-mono);
   font-variant-numeric: tabular-nums;
   font-size: 0.7rem;
@@ -809,125 +834,144 @@ html, body {
   text-align: right;
 }
 
-.mg-panel__telemetry-val--accent {
+.mg-card__telemetry-val--accent {
   color: var(--mg-val-color, var(--phosphor));
   font-weight: 600;
   letter-spacing: 0.12em;
   text-shadow: 0 0 6px currentColor;
 }
 
-/* ----- Méta grid dense (2 colonnes, dernière cellule full-width) ----- */
-.mg-panel__meta-grid {
+/* =========================================================
+   CARD 6 — DETAIL (décalée droite, compacte)
+   ========================================================= */
+.mg-card--detail {
+  grid-column: 4 / span 9;
+  grid-row: 5;
+  padding: 0.85rem 1.1rem 0.95rem;
+}
+
+.mg-card__detail-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 0.85rem 1.2rem;
+  gap: 0.7rem 1rem;
   margin: 0;
 }
 
-.mg-panel__meta-cell {
+.mg-card__detail-grid > div {
   display: flex;
   flex-direction: column;
-  gap: 0.25rem;
+  gap: 0.2rem;
 }
 
-.mg-panel__meta-cell--wide {
+.mg-card__detail-wide {
   grid-column: 1 / -1;
 }
 
-.mg-panel__meta-cell dt {
-  font-size: 0.58rem;
-  letter-spacing: 0.18em;
-  text-transform: uppercase;
-  color: var(--ink-faint);
-}
-
-.mg-panel__meta-cell dd {
-  margin: 0;
-  font-family: var(--font-mono);
-  font-size: 0.82rem;
-  color: var(--ink-primary);
-  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.4);
-}
-
-/* ----- FOOTER : signature agent + CTA enrichi ----- */
-.mg-panel__footer {
-  position: relative;
-  z-index: 2;
-  padding: 1.3rem 2.2rem 1.8rem;
-  border-top: 1px solid rgba(58, 64, 112, 0.45);
-  display: grid;
-  grid-template-columns: auto 1fr;
-  align-items: end;
-  gap: 1.4rem;
-}
-
-.mg-panel__signature {
-  display: flex;
-  flex-direction: column;
-  gap: 0.15rem;
-  font-family: var(--font-mono);
-  font-size: 0.58rem;
-  letter-spacing: 0.2em;
-  text-transform: uppercase;
-  color: var(--ink-dim);
-  user-select: none;
-}
-
-.mg-panel__sig-line {
-  white-space: nowrap;
-}
-
-.mg-panel__sig-line--dim {
-  color: var(--ink-faint);
-  letter-spacing: 0.16em;
-}
-
-.mg-panel__cta-block {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-end;
-  gap: 0.5rem;
-}
-
-.mg-panel__cta {
-  padding: 0.85rem 1.5rem;
-  font-size: 0.78rem;
-  min-width: 220px;
-  justify-content: center;
-  /* Sous-lentille du panneau : background semi-opaque + blur léger. */
-  background: rgba(14, 18, 38, 0.4);
-  backdrop-filter: blur(8px);
-  -webkit-backdrop-filter: blur(8px);
-}
-
-.mg-panel__cta-hint {
-  font-family: var(--font-mono);
+.mg-card__detail-grid dt {
   font-size: 0.55rem;
   letter-spacing: 0.18em;
   text-transform: uppercase;
   color: var(--ink-faint);
 }
 
-/* Mobile : panneau prend 100vw (sinon overflow horizontal). On garde
-   la même DA, juste la largeur change + footer en colonne pour ne pas
-   exploser le grid. (Audit I7 — resize/petits écrans.) */
+.mg-card__detail-grid dd {
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: 0.8rem;
+  color: var(--ink-primary);
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.4);
+}
+
+/* =========================================================
+   CARD 7 — AGENT (bas-gauche, fin)
+   ========================================================= */
+.mg-card--agent {
+  grid-column: 1 / span 5;
+  grid-row: 6;
+  margin-top: 0.6rem;
+  padding: 0.7rem 0.9rem 0.75rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  font-family: var(--font-mono);
+  font-size: 0.55rem;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--ink-dim);
+  user-select: none;
+  align-self: end;
+}
+
+.mg-card__sig-line {
+  white-space: nowrap;
+}
+
+.mg-card__sig-line--dim {
+  color: var(--ink-faint);
+  letter-spacing: 0.14em;
+}
+
+/* =========================================================
+   CARD 8 — CTA (bas-droite)
+   ========================================================= */
+.mg-card--cta {
+  grid-column: 6 / span 7;
+  grid-row: 6;
+  margin-top: 0.6rem;
+  padding: 0.7rem 0.9rem 0.9rem;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 0.45rem;
+  align-self: end;
+}
+
+.mg-card__cta-btn {
+  width: 100%;
+  justify-content: center;
+  padding: 0.75rem 1.2rem;
+  font-size: 0.74rem;
+  background: rgba(14, 18, 38, 0.4);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
+
+.mg-card__cta-hint {
+  font-family: var(--font-mono);
+  font-size: 0.52rem;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+}
+
+/* =========================================================
+   Mobile (≤640px) — composition se replie en colonne unique
+   ========================================================= */
 @media (max-width: 640px) {
   .mg-panel {
     width: 100vw;
-    border-left: none;
+    background: none; /* la trace gauche n'a plus de sens fullscreen */
   }
-  .mg-panel__number {
-    font-size: 2.8rem;
+  .mg-panel__layout {
+    padding: 1.2rem 1rem 1.4rem;
+    gap: 0.7rem 0.3rem;
   }
-  .mg-panel__footer {
-    grid-template-columns: 1fr;
-    gap: 1rem;
+  .mg-card--tag,
+  .mg-card--meta,
+  .mg-card--title,
+  .mg-card--signal,
+  .mg-card--telemetry,
+  .mg-card--detail,
+  .mg-card--agent,
+  .mg-card--cta {
+    grid-column: 1 / -1;
+    margin-left: 0;
   }
-  .mg-panel__cta-block {
-    align-items: stretch;
-  }
-  .mg-panel__telemetry-row {
-    grid-template-columns: 80px 1fr 70px;
+  .mg-card--meta { grid-row: auto; justify-content: flex-end; }
+  .mg-card__number { font-size: 3rem; }
+  .mg-card__title-text { font-size: 1.3rem; }
+  .mg-card__telemetry-row {
+    grid-template-columns: 72px 1fr 72px;
     gap: 0.6rem;
   }
 }

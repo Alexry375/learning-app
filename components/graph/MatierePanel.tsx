@@ -1,24 +1,29 @@
 "use client";
 
 /**
- * <MatierePanel>
+ * <MatierePanel> — composition éclatée
  *
- * Panneau slide-in droite du flow "Mario Galaxy split-screen". Affiche le
- * briefing d'une matière. Itération [23:38] — composition ambitieuse :
- * watermark CLASSIFIED, header timestamp UTC live, code dossier avec
- * micro-glitch, numéro monumental, 3 sections diamants (signal /
- * télémétrie / méta), 3 mini-bargraphs (fenêtre/urgence/profondeur),
- * footer triple (signature agent + CTA enrichi).
+ * Itération [23:53] — rupture de format. Plus de "panneau" unique à
+ * droite. Le composant rend maintenant une **composition de cards
+ * indépendantes** positionnées en grid avec décalages volontaires
+ * (offsets latéraux, marges asymétriques) — chaque card est un objet
+ * autonome avec son propre glass, ses propres bordures, sa propre
+ * direction d'apparition.
  *
- * Le panneau est piloté de l'extérieur par `slug` + `isOpen` :
- *   - `slug=null` ou `isOpen=false` → état fermé (slide-out).
- *   - changement de `slug` pendant que le panneau est ouvert → swap avec
- *     cross-fade géré localement (state `bodyFading`).
+ * Cards (par ordre de cascade) :
+ *   1. card-tag       — `• Dossier · 001 · TOB / 1SN` (haut-gauche)
+ *   2. card-meta      — horloge UTC + esc + close (haut-droite)
+ *   3. card-title     — numéro monumental + titre (large, clip-path coupé)
+ *   4. card-signal    — symptôme dans blockquote (décalée droite)
+ *   5. card-telemetry — 3 bargraphs animés (centrée)
+ *   6. card-detail    — strate / domaine / fenêtre brute (décalée droite)
+ *   7. card-agent     — signature 3 lignes (bas-gauche)
+ *   8. card-cta       — bouton + hint retour (bas-droite)
  *
- * Pas de gestion du fly caméra ici — c'est le GraphSceneClient parent qui
- * sait ce qu'il fait avec la 3D.
- *
- * Styles dans `app/globals.css` (préfixe `.mg-panel__*`).
+ * Le wrapper `.mg-panel` reste fixed top-right pour le slide-in global ;
+ * `.mg-panel__layout` est une grid à 12 colonnes pour positionner les
+ * cards. Plus de background global, plus de bordure gauche — c'est le
+ * vide entre les cards qui montre le 3D derrière.
  */
 
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -32,15 +37,12 @@ interface MatierePanelProps {
 }
 
 /* ---------------------------------------------------------------
-   Helpers de présentation — dérivation des barres de télémétrie
+   Dérivations télémétrie
    --------------------------------------------------------------- */
 
-/** Barre d'urgence ASCII (10 blocs) + couleur via CSS var + numérique. */
 function urgencyView(urgency: Urgency): {
-  bar: string;
   cssColor: string;
   label: string;
-  numeric: string;
   fill: number;
 } {
   const table: Record<Urgency, { fill: number; color: string }> = {
@@ -50,42 +52,20 @@ function urgencyView(urgency: Urgency): {
     stable: { fill: 3, color: "var(--phosphor-dim)" },
   };
   const { fill, color } = table[urgency];
-  const bar = "█".repeat(fill) + "░".repeat(10 - fill);
-  return {
-    bar,
-    cssColor: color,
-    label: urgency,
-    numeric: `${fill}.0/10`,
-    fill,
-  };
+  return { cssColor: color, label: urgency, fill };
 }
 
-/** Fenêtre d'opportunité : map urgency → bar (l'urgence et la fenêtre sont
- *  corrélées — `imminent` = fenêtre presque fermée, `stable` = grande
- *  ouverte). On rend ça lisible avec un chiffre fictif `h restantes`. */
-function windowView(urgency: Urgency, windowText: string): {
-  bar: string;
-  numeric: string;
-  raw: string;
-  fill: number;
-} {
+function windowView(urgency: Urgency): { numeric: string; fill: number } {
   const table: Record<Urgency, { fill: number; numeric: string }> = {
     imminent: { fill: 2, numeric: "≤ 72 h" },
     "élevée": { fill: 4, numeric: "≈ 1 sem" },
     "modérée": { fill: 6, numeric: "≈ 1 mois" },
     stable: { fill: 8, numeric: "indéfinie" },
   };
-  const { fill, numeric } = table[urgency];
-  const bar = "█".repeat(fill) + "░".repeat(10 - fill);
-  return { bar, numeric, raw: windowText, fill };
+  return table[urgency];
 }
 
-/** Profondeur de strate : mapping basé sur le nom de la couche. */
-function layerView(layer: string): {
-  bar: string;
-  numeric: string;
-  fill: number;
-} {
+function layerView(layer: string): { fill: number } {
   const map: Record<string, number> = {
     Objet: 2,
     Système: 5,
@@ -94,13 +74,11 @@ function layerView(layer: string): {
     Réseau: 4,
     Algorithme: 3,
   };
-  const fill = map[layer] ?? 5;
-  const bar = "█".repeat(fill) + "░".repeat(10 - fill);
-  return { bar, numeric: `${fill}.0/10`, fill };
+  return { fill: map[layer] ?? 5 };
 }
 
 /* ---------------------------------------------------------------
-   Glitch sur le code dossier — substitution éphémère d'un char
+   Glitch éphémère sur le code
    --------------------------------------------------------------- */
 
 const GLITCH_TABLE: Record<string, string[]> = {
@@ -116,9 +94,6 @@ const GLITCH_TABLE: Record<string, string[]> = {
   "9": ["g", "P"],
 };
 
-/** Produit une version glitchée du code en remplaçant un char par un
- *  caractère visuellement proche. Retourne le code inchangé si pas
- *  de candidat. */
 function glitchCode(code: string): string {
   if (code.length === 0) return code;
   const candidates: number[] = [];
@@ -132,10 +107,6 @@ function glitchCode(code: string): string {
   return code.slice(0, i) + sub + code.slice(i + 1);
 }
 
-/* ---------------------------------------------------------------
-   Timestamp UTC formaté HH:MM:SS — incrémenté toutes les secondes
-   --------------------------------------------------------------- */
-
 function formatUtc(d: Date): string {
   const pad = (n: number) => String(n).padStart(2, "0");
   return `${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}:${pad(d.getUTCSeconds())}`;
@@ -146,8 +117,6 @@ function formatUtc(d: Date): string {
 export function MatierePanel({ slug, isOpen, onClose }: MatierePanelProps) {
   const router = useRouter();
 
-  // On garde le dernier meta affichable pour ne pas faire flasher le contenu
-  // pendant le slide-out. Init synchrone à `slug` pour le 1er frame.
   const [displayedSlug, setDisplayedSlug] = useState<string | null>(slug);
   const [bodyFading, setBodyFading] = useState(false);
   const fadeTimerRef = useRef<number | null>(null);
@@ -157,14 +126,11 @@ export function MatierePanel({ slug, isOpen, onClose }: MatierePanelProps) {
   const enterTimerRef = useRef<number | null>(null);
   const caretTimerRef = useRef<number | null>(null);
 
-  // Timestamp UTC live (HH:MM:SS) — tick 1Hz. Figé si reduce-motion.
   const [now, setNow] = useState<string>(() => formatUtc(new Date()));
-  // Code dossier avec glitch éphémère (chevauche meta.code). Reset à
-  // chaque changement de slug. Figé si reduce-motion.
   const [glitchedCode, setGlitchedCode] = useState<string | null>(null);
   const glitchTimerRef = useRef<number | null>(null);
 
-  // Sync `slug` → `displayedSlug`.
+  // Sync slug → displayedSlug (avec cross-fade lors d'un swap).
   useEffect(() => {
     if (slug === displayedSlug) {
       wasOpenRef.current = isOpen;
@@ -204,7 +170,7 @@ export function MatierePanel({ slug, isOpen, onClose }: MatierePanelProps) {
     return () => window.removeEventListener("keydown", handler);
   }, [isOpen, onClose]);
 
-  // Scan-sweep + caret + stagger fade-in sur transition fermé → ouvert.
+  // Cascade entry + caret sur transition fermé → ouvert.
   const prevIsOpenRef = useRef(isOpen);
   useEffect(() => {
     const wasOpen = prevIsOpenRef.current;
@@ -224,17 +190,18 @@ export function MatierePanel({ slug, isOpen, onClose }: MatierePanelProps) {
     }
     setIsEntering(true);
     setShowCaret(true);
+    // 1500ms = 8 cards × ~120ms cascade + marge.
     enterTimerRef.current = window.setTimeout(() => {
       enterTimerRef.current = null;
       setIsEntering(false);
-    }, 1200);
+    }, 1500);
     caretTimerRef.current = window.setTimeout(() => {
       caretTimerRef.current = null;
       setShowCaret(false);
     }, 2400);
   }, [isOpen]);
 
-  // Tick UTC 1Hz quand le panneau est ouvert. Coupé en reduce-motion.
+  // Tick UTC 1Hz quand le panneau est ouvert.
   useEffect(() => {
     if (!isOpen) return;
     const reduced =
@@ -247,8 +214,7 @@ export function MatierePanel({ slug, isOpen, onClose }: MatierePanelProps) {
     return () => window.clearInterval(id);
   }, [isOpen]);
 
-  // Glitch éphémère du code dossier toutes les 4-7s pour ~120ms.
-  // Reset au changement de slug. Coupé en reduce-motion.
+  // Glitch éphémère du code dossier.
   useEffect(() => {
     if (!isOpen) return;
     const reduced =
@@ -286,21 +252,13 @@ export function MatierePanel({ slug, isOpen, onClose }: MatierePanelProps) {
     };
   }, [isOpen, displayedSlug]);
 
-  // Cleanup global au démontage.
+  // Cleanup global.
   useEffect(() => {
     return () => {
-      if (fadeTimerRef.current !== null) {
-        window.clearTimeout(fadeTimerRef.current);
-      }
-      if (enterTimerRef.current !== null) {
-        window.clearTimeout(enterTimerRef.current);
-      }
-      if (caretTimerRef.current !== null) {
-        window.clearTimeout(caretTimerRef.current);
-      }
-      if (glitchTimerRef.current !== null) {
-        window.clearTimeout(glitchTimerRef.current);
-      }
+      if (fadeTimerRef.current !== null) window.clearTimeout(fadeTimerRef.current);
+      if (enterTimerRef.current !== null) window.clearTimeout(enterTimerRef.current);
+      if (caretTimerRef.current !== null) window.clearTimeout(caretTimerRef.current);
+      if (glitchTimerRef.current !== null) window.clearTimeout(glitchTimerRef.current);
     };
   }, []);
 
@@ -308,12 +266,11 @@ export function MatierePanel({ slug, isOpen, onClose }: MatierePanelProps) {
     ? getAnomalie(displayedSlug)
     : undefined;
 
-  // Dérivés mémoïsés — recalculés au changement de matière.
   const telemetry = useMemo(() => {
     if (!meta) return null;
     return {
       urgency: urgencyView(meta.urgency),
-      window: windowView(meta.urgency, meta.window),
+      window: windowView(meta.urgency),
       layer: layerView(meta.layer),
     };
   }, [meta]);
@@ -327,9 +284,14 @@ export function MatierePanel({ slug, isOpen, onClose }: MatierePanelProps) {
     e.stopPropagation();
   };
 
-  // Code affiché : glitché ou normal. Le wrapper monospace garde
-  // la largeur stable (police mono → pas de reflow sur substitution).
   const displayedCode = glitchedCode ?? meta?.code ?? "";
+
+  // Classe combinatoire des cards : pose `is-entering` pour cascade,
+  // `is-fading` pour swap cross-fade.
+  const layoutClasses =
+    "mg-panel__layout" +
+    (bodyFading ? " is-fading" : "") +
+    (isEntering ? " is-entering" : "");
 
   return (
     <aside
@@ -342,192 +304,183 @@ export function MatierePanel({ slug, isOpen, onClose }: MatierePanelProps) {
       onClick={stop}
     >
       {meta && telemetry ? (
-        <>
-          {/* Background radar grid + watermark CLASSIFIED — décor pur. */}
-          <div className="mg-panel__radar" aria-hidden="true" />
-          <div className="mg-panel__watermark" aria-hidden="true">
-            CLASSIFIED
+        <div className={layoutClasses}>
+          {/* === CARD 1 : TAG (haut-gauche) ============================= */}
+          <div className="mg-card mg-card--tag" data-card="tag">
+            <span className="mg-card__corner mg-card__corner--tl" aria-hidden="true" />
+            <span className="mg-card__corner mg-card__corner--br" aria-hidden="true" />
+            <span className="mg-card__dot" aria-hidden="true" />
+            <span className="mg-card__tag-text tracking-classified">
+              Dossier · <span className="mg-card__tag-code">{displayedCode}</span> · {meta.domain}
+            </span>
           </div>
 
-          {/* Scan-sweep diégétique à l'ouverture. */}
-          {isEntering ? (
-            <div className="mg-panel__scan" aria-hidden="true">
-              <div className="mg-panel__scan-bar" />
-            </div>
-          ) : null}
+          {/* === CARD 2 : META-CLOCK (haut-droite) ====================== */}
+          <div className="mg-card mg-card--meta" data-card="meta">
+            <span className="mg-card__clock">
+              <span className="mg-card__clock-dot" aria-hidden="true">●</span>
+              {now}
+              <span className="mg-card__clock-suffix">UTC</span>
+            </span>
+            <span className="mg-card__esc">[esc]</span>
+            <button
+              type="button"
+              className="mg-card__close"
+              aria-label="Fermer le panneau"
+              onClick={onClose}
+            >
+              ×
+            </button>
+          </div>
 
-          {/* ============== HEADER ============== */}
-          <header className="mg-panel__header">
-            <div className="mg-panel__topline">
-              <span className="mg-panel__code-tag tracking-classified">
-                <span className="mg-panel__code-dot" aria-hidden="true" />
-                Dossier · <span className="mg-panel__code-mono">{displayedCode}</span> · {meta.domain}
-              </span>
-              <span className="mg-panel__hints">
-                <span className="mg-panel__clock" aria-label="Heure UTC">
-                  {now} <span className="mg-panel__clock-suffix">UTC</span>
-                </span>
-                <span className="mg-panel__esc">[esc]</span>
-                <button
-                  type="button"
-                  className="mg-panel__close"
-                  aria-label="Fermer le panneau"
-                  onClick={onClose}
-                >
-                  ×
-                </button>
-              </span>
-            </div>
-
-            <div className="mg-panel__title-row">
-              <span className="mg-panel__number" aria-hidden="true">
-                {meta.code}
+          {/* === CARD 3 : TITLE (large, clip-path coupé) ================ */}
+          <div className="mg-card mg-card--title" data-card="title">
+            <span className="mg-card__number" aria-hidden="true">
+              {meta.code}
+            </span>
+            <div className="mg-card__title-block">
+              <span className="mg-card__title-pretitle tracking-classified">
+                Matière classifiée
               </span>
               <h2
-                className={`mg-panel__title${showCaret ? " caret" : ""}`}
+                className={`mg-card__title-text${showCaret ? " caret" : ""}`}
               >
                 {meta.title}
               </h2>
             </div>
-          </header>
-
-          {/* ============== BODY ============== */}
-          <div
-            className={
-              "mg-panel__body" +
-              (bodyFading ? " is-fading" : "") +
-              (isEntering ? " is-entering" : "")
-            }
-          >
-            <section className="mg-panel__section">
-              <h3 className="mg-panel__section-label">
-                <span className="mg-panel__diamond" aria-hidden="true">◇</span>
-                Signal détecté
-              </h3>
-              <p className="mg-panel__symptom">{meta.symptom}</p>
-            </section>
-
-            <section className="mg-panel__section">
-              <h3 className="mg-panel__section-label">
-                <span className="mg-panel__diamond" aria-hidden="true">◇</span>
-                Télémétrie
-              </h3>
-              <div className="mg-panel__telemetry">
-                <div className="mg-panel__telemetry-row">
-                  <span className="mg-panel__telemetry-key">Fenêtre</span>
-                  <span
-                    className="mg-panel__telemetry-bar"
-                    style={
-                      {
-                        ["--mg-bar-fill" as string]:
-                          `${telemetry.window.fill * 10}%`,
-                        ["--mg-bar-color" as string]:
-                          telemetry.window.fill <= 3
-                            ? "var(--alert)"
-                            : telemetry.window.fill <= 5
-                              ? "var(--classified)"
-                              : "var(--phosphor)",
-                      } as React.CSSProperties
-                    }
-                  >
-                    <span className="mg-panel__telemetry-bar-fill" />
-                  </span>
-                  <span className="mg-panel__telemetry-val">
-                    {telemetry.window.numeric}
-                  </span>
-                </div>
-                <div className="mg-panel__telemetry-row">
-                  <span className="mg-panel__telemetry-key">Urgence</span>
-                  <span
-                    className="mg-panel__telemetry-bar"
-                    style={
-                      {
-                        ["--mg-bar-fill" as string]:
-                          `${telemetry.urgency.fill * 10}%`,
-                        ["--mg-bar-color" as string]: telemetry.urgency.cssColor,
-                      } as React.CSSProperties
-                    }
-                  >
-                    <span className="mg-panel__telemetry-bar-fill" />
-                  </span>
-                  <span
-                    className="mg-panel__telemetry-val mg-panel__telemetry-val--accent"
-                    style={
-                      {
-                        ["--mg-val-color" as string]: telemetry.urgency.cssColor,
-                      } as React.CSSProperties
-                    }
-                  >
-                    {telemetry.urgency.label.toUpperCase()}
-                  </span>
-                </div>
-                <div className="mg-panel__telemetry-row">
-                  <span className="mg-panel__telemetry-key">Profondeur</span>
-                  <span
-                    className="mg-panel__telemetry-bar"
-                    style={
-                      {
-                        ["--mg-bar-fill" as string]:
-                          `${telemetry.layer.fill * 10}%`,
-                        ["--mg-bar-color" as string]: "var(--seal)",
-                      } as React.CSSProperties
-                    }
-                  >
-                    <span className="mg-panel__telemetry-bar-fill" />
-                  </span>
-                  <span className="mg-panel__telemetry-val">
-                    couche {telemetry.layer.fill}
-                  </span>
-                </div>
-              </div>
-            </section>
-
-            <section className="mg-panel__section">
-              <h3 className="mg-panel__section-label">
-                <span className="mg-panel__diamond" aria-hidden="true">◇</span>
-                Méta
-              </h3>
-              <dl className="mg-panel__meta-grid">
-                <div className="mg-panel__meta-cell">
-                  <dt>Strate</dt>
-                  <dd>{meta.layer}</dd>
-                </div>
-                <div className="mg-panel__meta-cell">
-                  <dt>Domaine</dt>
-                  <dd>{meta.domain}</dd>
-                </div>
-                <div className="mg-panel__meta-cell mg-panel__meta-cell--wide">
-                  <dt>Fenêtre brute</dt>
-                  <dd>{meta.window}</dd>
-                </div>
-              </dl>
-            </section>
+            {/* Bandeau latéral droit "OUVERT" — détail Mass Effect. */}
+            <span className="mg-card__title-stripe" aria-hidden="true">
+              OUVERT
+            </span>
           </div>
 
-          {/* ============== FOOTER ============== */}
-          <footer className="mg-panel__footer">
-            <div className="mg-panel__signature" aria-hidden="true">
-              <span className="mg-panel__sig-line">AGENT · 3A·F1</span>
-              <span className="mg-panel__sig-line">L&apos;INTERPRÉTEUR</span>
-              <span className="mg-panel__sig-line mg-panel__sig-line--dim">
-                #ALX-2026
-              </span>
+          {/* === CARD 4 : SIGNAL (décalée droite) ======================= */}
+          <div className="mg-card mg-card--signal" data-card="signal">
+            <h3 className="mg-card__label">
+              <span className="mg-card__diamond" aria-hidden="true">◇</span>
+              Signal détecté
+            </h3>
+            <p className="mg-card__signal-body">{meta.symptom}</p>
+          </div>
+
+          {/* === CARD 5 : TÉLÉMÉTRIE (centrée) ========================== */}
+          <div className="mg-card mg-card--telemetry" data-card="telemetry">
+            <h3 className="mg-card__label">
+              <span className="mg-card__diamond" aria-hidden="true">◇</span>
+              Télémétrie
+            </h3>
+            <div className="mg-card__telemetry">
+              <div className="mg-card__telemetry-row">
+                <span className="mg-card__telemetry-key">Fenêtre</span>
+                <span
+                  className="mg-card__telemetry-bar"
+                  style={
+                    {
+                      ["--mg-bar-fill" as string]:
+                        `${telemetry.window.fill * 10}%`,
+                      ["--mg-bar-color" as string]:
+                        telemetry.window.fill <= 3
+                          ? "var(--alert)"
+                          : telemetry.window.fill <= 5
+                            ? "var(--classified)"
+                            : "var(--phosphor)",
+                    } as React.CSSProperties
+                  }
+                >
+                  <span className="mg-card__telemetry-bar-fill" />
+                </span>
+                <span className="mg-card__telemetry-val">
+                  {telemetry.window.numeric}
+                </span>
+              </div>
+              <div className="mg-card__telemetry-row">
+                <span className="mg-card__telemetry-key">Urgence</span>
+                <span
+                  className="mg-card__telemetry-bar"
+                  style={
+                    {
+                      ["--mg-bar-fill" as string]:
+                        `${telemetry.urgency.fill * 10}%`,
+                      ["--mg-bar-color" as string]: telemetry.urgency.cssColor,
+                    } as React.CSSProperties
+                  }
+                >
+                  <span className="mg-card__telemetry-bar-fill" />
+                </span>
+                <span
+                  className="mg-card__telemetry-val mg-card__telemetry-val--accent"
+                  style={
+                    {
+                      ["--mg-val-color" as string]: telemetry.urgency.cssColor,
+                    } as React.CSSProperties
+                  }
+                >
+                  {telemetry.urgency.label.toUpperCase()}
+                </span>
+              </div>
+              <div className="mg-card__telemetry-row">
+                <span className="mg-card__telemetry-key">Profondeur</span>
+                <span
+                  className="mg-card__telemetry-bar"
+                  style={
+                    {
+                      ["--mg-bar-fill" as string]:
+                        `${telemetry.layer.fill * 10}%`,
+                      ["--mg-bar-color" as string]: "var(--seal)",
+                    } as React.CSSProperties
+                  }
+                >
+                  <span className="mg-card__telemetry-bar-fill" />
+                </span>
+                <span className="mg-card__telemetry-val">
+                  couche {telemetry.layer.fill}
+                </span>
+              </div>
             </div>
-            <div className="mg-panel__cta-block">
-              <button
-                type="button"
-                className="btn-int mg-panel__cta"
-                data-variant="classified"
-                onClick={handleCta}
-              >
-                Entrer dans la matière
-              </button>
-              <span className="mg-panel__cta-hint">
-                ↵ entrer · esc revenir
-              </span>
-            </div>
-          </footer>
-        </>
+          </div>
+
+          {/* === CARD 6 : DETAIL (décalée droite) ======================= */}
+          <div className="mg-card mg-card--detail" data-card="detail">
+            <dl className="mg-card__detail-grid">
+              <div>
+                <dt>Strate</dt>
+                <dd>{meta.layer}</dd>
+              </div>
+              <div>
+                <dt>Domaine</dt>
+                <dd>{meta.domain}</dd>
+              </div>
+              <div className="mg-card__detail-wide">
+                <dt>Fenêtre brute</dt>
+                <dd>{meta.window}</dd>
+              </div>
+            </dl>
+          </div>
+
+          {/* === CARD 7 : AGENT (bas-gauche) ============================ */}
+          <div className="mg-card mg-card--agent" data-card="agent">
+            <span className="mg-card__sig-line">AGENT · 3A·F1</span>
+            <span className="mg-card__sig-line">L&apos;INTERPRÉTEUR</span>
+            <span className="mg-card__sig-line mg-card__sig-line--dim">
+              #ALX-2026
+            </span>
+          </div>
+
+          {/* === CARD 8 : CTA (bas-droite) ============================== */}
+          <div className="mg-card mg-card--cta" data-card="cta">
+            <button
+              type="button"
+              className="btn-int mg-card__cta-btn"
+              data-variant="classified"
+              onClick={handleCta}
+            >
+              Entrer dans la matière
+            </button>
+            <span className="mg-card__cta-hint">
+              ↵ entrer · esc revenir
+            </span>
+          </div>
+        </div>
       ) : null}
     </aside>
   );
