@@ -372,15 +372,22 @@ html, body {
    Mario Galaxy split — panneau matière (slide-in droite) + palette
    recherche (Ctrl+Alt+K). Tous ces composants vivent uniquement dans
    le graphe `/` ; aucune route plein écran n'y touche.
+
+   DA : glassmorphism violent — le panneau et la palette sont des
+   *lentilles* à travers le canvas 3D iridescent, pas posés au-dessus.
+   Le 3D coloré (pointLights cyan/magenta/amber + bulles iridescentes)
+   teinte le panneau via backdrop-filter saturate+brightness boosté.
+   Cf. inputs/moodboard.md.
    =========================================================== */
 :root {
-  /* Background du panneau et de la palette — assemblage des tokens
-     existants pour rester dans la signature (deck profond + voile). */
-  --panel-bg: linear-gradient(180deg, rgba(14, 18, 38, 0.96), rgba(7, 9, 26, 0.99));
-  --panel-border: var(--rule-strong);
+  /* Substrat verre : navy semi-transparent qui teinte sans masquer.
+     Le moodboard cible 0.42 ; on garde la valeur exacte. */
+  --mg-glass-bg: rgba(14, 18, 38, 0.42);
+  /* Palette : un poil moins transparent — c'est un outil, il doit
+     rester lisible. */
+  --mg-glass-bg-tool: rgba(14, 18, 38, 0.55);
   /* Largeur cible sur desktop : ~480px @1440p, capée pour mobile. */
   --panel-width-desktop: clamp(420px, 42vw, 580px);
-  --panel-blur: 14px;
 }
 
 /* ----- Panneau matière split-screen ----- */
@@ -391,10 +398,32 @@ html, body {
   bottom: 0;
   width: var(--panel-width-desktop);
   z-index: 70;
-  background: var(--panel-bg);
-  backdrop-filter: blur(var(--panel-blur));
-  -webkit-backdrop-filter: blur(var(--panel-blur));
-  border-left: 1px solid var(--panel-border);
+  /* Substrat verre : voile navy translucide. */
+  background: var(--mg-glass-bg);
+  /* Backdrop-filter violent : le 3D iridescent derrière transparaît
+     teinté, saturé, légèrement éclairci (la "lentille" du moodboard).
+     `-webkit-` requis Safari (TP 2026, support stable).
+     Coût GPU : un seul nœud plein-hauteur — acceptable.
+     Note dégradation : si backdrop-filter n'est pas supporté
+     (vieux Firefox < 103, etc.), `--mg-glass-bg` à 0.42 laisse passer
+     un peu de couleur, le rendu reste honnête bien que moins propre. */
+  backdrop-filter: blur(28px) saturate(180%) brightness(1.08);
+  -webkit-backdrop-filter: blur(28px) saturate(180%) brightness(1.08);
+  /* Tranche de verre verticale : transparent → semi-opaque → transparent.
+     `border-image` mange `border-left-style: solid` ci-dessous. */
+  border-left: 1px solid transparent;
+  border-image: linear-gradient(
+    to bottom,
+    rgba(255, 255, 255, 0.10) 0%,
+    rgba(58, 64, 112, 0.5) 50%,
+    rgba(255, 255, 255, 0.10) 100%
+  ) 1;
+  /* Edge highlight haut (1px subtil) — suggère la "lift" / réflexion
+     lumineuse. Pas de drop-shadow externe : le panneau s'immerge dans
+     le 3D, il ne "tombe" pas dessus. */
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.08),
+    inset 1px 0 0 rgba(58, 255, 149, 0.04);
   font-family: var(--font-mono);
   color: var(--ink-primary);
   /* Closed state : translateX hors écran. La classe `.is-open` fait
@@ -405,6 +434,7 @@ html, body {
   display: flex;
   flex-direction: column;
   pointer-events: auto;
+  overflow: hidden;
 }
 
 .mg-panel.is-open {
@@ -417,10 +447,50 @@ html, body {
   transition: transform 320ms cubic-bezier(0.7, 0, 0.84, 0);
 }
 
+/* Scan-sweep diégétique à l'ouverture — passe une fois verticalement
+   par-dessus le contenu du panneau. Utilitaire `.scan-sweep` existe
+   déjà (cf. plus haut, animation 1.4s) ; on l'overlay avec position
+   absolute pour qu'il ne pousse pas le layout. */
+.mg-panel__scan {
+  position: absolute;
+  inset-inline: 0;
+  top: 0;
+  bottom: 0;
+  pointer-events: none;
+  overflow: hidden;
+  z-index: 1;
+}
+
+.mg-panel__scan-bar {
+  position: absolute;
+  inset-inline: 0;
+  height: 36px;
+  background: linear-gradient(
+    to bottom,
+    transparent 0%,
+    rgba(58, 255, 149, 0.18) 50%,
+    transparent 100%
+  );
+  filter: blur(3px);
+  /* Anim : descend de -10% à 110% en 1100ms, courbe sèche (sortie).
+     Forwards = reste hors-écran à la fin. */
+  animation: mg-scan-sweep 1100ms cubic-bezier(0.7, 0, 0.84, 0) forwards;
+}
+
+@keyframes mg-scan-sweep {
+  0% { transform: translateY(-10%); opacity: 0; }
+  10% { opacity: 0.9; }
+  85% { opacity: 0.85; }
+  100% { transform: translateY(110%); opacity: 0; }
+}
+
 /* HEADER : code · domain · close hints + title */
 .mg-panel__header {
+  position: relative;
+  z-index: 2;
   padding: 2rem 2.2rem 1.4rem;
-  border-bottom: 1px solid var(--rule);
+  /* Règle horizontale en demi-translucide (le 3D doit passer derrière). */
+  border-bottom: 1px solid rgba(58, 64, 112, 0.45);
 }
 
 .mg-panel__topline {
@@ -474,10 +544,15 @@ html, body {
   line-height: 1.3;
   color: var(--ink-primary);
   margin: 0;
+  /* Légère ombre pour la lisibilité sur fond translucide — modérée,
+     pas un drop-shadow brutal qui ferait "flotter" le texte. */
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.45);
 }
 
 /* BODY : cross-fade utilisé pour le swap de matière sans fermer */
 .mg-panel__body {
+  position: relative;
+  z-index: 2;
   padding: 1.6rem 2.2rem 1.4rem;
   flex: 1 1 auto;
   overflow-y: auto;
@@ -488,12 +563,34 @@ html, body {
   opacity: 0;
 }
 
+/* Stagger fade-in à l'ouverture initiale : chaque enfant direct du
+   body apparaît avec un léger décalage. Animation appliquée seulement
+   sur `.mg-panel.is-open .mg-panel__body.is-entering` (la classe
+   `is-entering` est posée par le composant React au mount/open puis
+   retirée 800ms plus tard). Pendant les swaps, on n'utilise pas ce
+   stagger (le cross-fade `.is-fading` gère déjà la transition). */
+.mg-panel.is-open .mg-panel__body.is-entering > * {
+  opacity: 0;
+  animation: mg-body-fade-in 380ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.mg-panel.is-open .mg-panel__body.is-entering > *:nth-child(1) { animation-delay: 80ms; }
+.mg-panel.is-open .mg-panel__body.is-entering > *:nth-child(2) { animation-delay: 160ms; }
+.mg-panel.is-open .mg-panel__body.is-entering > *:nth-child(3) { animation-delay: 240ms; }
+.mg-panel.is-open .mg-panel__body.is-entering > *:nth-child(4) { animation-delay: 320ms; }
+
+@keyframes mg-body-fade-in {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
 .mg-panel__symptom {
   font-family: var(--font-mono);
   font-size: 0.92rem;
   line-height: 1.55;
   color: var(--ink-primary);
   margin: 0 0 1.6rem 0;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.4);
 }
 
 .mg-panel__meta {
@@ -516,6 +613,7 @@ html, body {
   font-family: var(--font-mono);
   font-size: 0.86rem;
   color: var(--ink-primary);
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.4);
 }
 
 .mg-panel__urgency-row {
@@ -540,8 +638,10 @@ html, body {
 
 /* FOOTER + CTA centré */
 .mg-panel__footer {
+  position: relative;
+  z-index: 2;
   padding: 1.4rem 2.2rem 2rem;
-  border-top: 1px solid var(--rule);
+  border-top: 1px solid rgba(58, 64, 112, 0.45);
   display: flex;
   justify-content: center;
 }
@@ -552,6 +652,13 @@ html, body {
   font-size: 0.86rem;
   min-width: 240px;
   justify-content: center;
+  /* Cohérence verre : léger backdrop-filter sur le bouton lui-même
+     (il devient une sous-lentille du panneau).
+     Background semi-transparent pour que le blur ait quelque chose
+     à brouiller. */
+  background: rgba(14, 18, 38, 0.35);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
 }
 
 /* Mobile : panneau prend 100vw (sinon overflow horizontal). On garde
@@ -587,10 +694,24 @@ html, body {
   left: 50%;
   width: min(640px, 90vw);
   z-index: 80;
-  background: var(--panel-bg);
-  backdrop-filter: blur(var(--panel-blur));
-  -webkit-backdrop-filter: blur(var(--panel-blur));
-  border: 1px solid var(--panel-border);
+  /* Substrat verre — un poil moins transparent que le panneau (c'est
+     un outil d'agent, doit rester très lisible) + blur plus fort. */
+  background: var(--mg-glass-bg-tool);
+  backdrop-filter: blur(32px) saturate(170%);
+  -webkit-backdrop-filter: blur(32px) saturate(170%);
+  /* Tranche de verre diagonale (135deg, distincte du panneau vertical). */
+  border: 1px solid transparent;
+  border-image: linear-gradient(
+    135deg,
+    rgba(255, 255, 255, 0.10),
+    rgba(58, 64, 112, 0.4),
+    rgba(255, 255, 255, 0.06)
+  ) 1;
+  /* Drop-shadow externe : la palette "atterrit" sur la scène (elle
+     n'est pas immergée comme le panneau). + edge highlight haut. */
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.08),
+    0 24px 60px rgba(0, 0, 0, 0.5);
   font-family: var(--font-mono);
   color: var(--ink-primary);
   /* État fermé : translateX(-50%) garde le centrage ; opacity 0 + scale */

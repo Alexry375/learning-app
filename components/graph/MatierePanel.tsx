@@ -65,6 +65,16 @@ export function MatierePanel({ slug, isOpen, onClose }: MatierePanelProps) {
   // (Fix audit I3 : sans ça, ouvrir B après avoir fermé A déclenchait un
   //  cross-fade indésirable au lieu d'un slide-in propre.)
   const wasOpenRef = useRef(isOpen);
+  // True pendant le mount initial / l'ouverture : déclenche le scan-sweep
+  // DOM (overlay 1100ms) + la classe `is-entering` sur le body (stagger
+  // fade-in CSS), + le caret pulsant sur le titre pendant 2s.
+  // Reset à false après 1200ms via setTimeout (avec cleanup).
+  const [isEntering, setIsEntering] = useState(false);
+  // True pendant les 2 premières secondes après l'ouverture : pose la
+  // classe `caret` sur le titre. Retirée par setTimeout (cleanup ok).
+  const [showCaret, setShowCaret] = useState(false);
+  const enterTimerRef = useRef<number | null>(null);
+  const caretTimerRef = useRef<number | null>(null);
 
   // Sync `slug` → `displayedSlug`.
   useEffect(() => {
@@ -116,11 +126,62 @@ export function MatierePanel({ slug, isOpen, onClose }: MatierePanelProps) {
     return () => window.removeEventListener("keydown", handler);
   }, [isOpen, onClose]);
 
-  // Cleanup du timer cross-fade au démontage (évite fuite sur HMR).
+  // Déclenchement scan-sweep + stagger fade-in + caret quand le panneau
+  // passe de fermé à ouvert. Respect strict de `prefers-reduced-motion :
+  // reduce` (gate les setTimeouts JS — le bloc CSS générique de
+  // globals.css coupe déjà les durations CSS).
+  const prevIsOpenRef = useRef(isOpen);
+  useEffect(() => {
+    const wasOpen = prevIsOpenRef.current;
+    prevIsOpenRef.current = isOpen;
+    // Ne déclenche que sur la transition fermé → ouvert (pas sur swap).
+    if (!isOpen || wasOpen) return;
+
+    const reduced =
+      typeof window !== "undefined" &&
+      window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+    // En reduce-motion : pas de scan, pas de caret. Comme isEntering /
+    // showCaret valent false par défaut (et le useEffect ne fire que sur
+    // fermé→ouvert, jamais sur fermeture), on n'a rien à reset — on
+    // retourne juste sans armer les timers.
+    if (reduced) return;
+
+    // Clear timers précédents : si l'utilisateur ferme puis rouvre à <2s,
+    // les timers de la session précédente seraient encore actifs et
+    // viendraient setShowCaret(false) au mauvais moment. (Fix audit CRIT #10.)
+    if (enterTimerRef.current !== null) {
+      window.clearTimeout(enterTimerRef.current);
+    }
+    if (caretTimerRef.current !== null) {
+      window.clearTimeout(caretTimerRef.current);
+    }
+    setIsEntering(true);
+    setShowCaret(true);
+    // 1200ms ≈ durée du scan-sweep (1100ms) + un peu de marge ; on retire
+    // ensuite la classe `is-entering` pour que le body ne re-anime pas si
+    // le composant rerend.
+    enterTimerRef.current = window.setTimeout(() => {
+      enterTimerRef.current = null;
+      setIsEntering(false);
+    }, 1200);
+    // Caret pulsant 2s puis disparaît.
+    caretTimerRef.current = window.setTimeout(() => {
+      caretTimerRef.current = null;
+      setShowCaret(false);
+    }, 2000);
+  }, [isOpen]);
+
+  // Cleanup des timers au démontage (évite fuite sur HMR / nav).
   useEffect(() => {
     return () => {
       if (fadeTimerRef.current !== null) {
         window.clearTimeout(fadeTimerRef.current);
+      }
+      if (enterTimerRef.current !== null) {
+        window.clearTimeout(enterTimerRef.current);
+      }
+      if (caretTimerRef.current !== null) {
+        window.clearTimeout(caretTimerRef.current);
       }
     };
   }, []);
@@ -159,10 +220,20 @@ export function MatierePanel({ slug, isOpen, onClose }: MatierePanelProps) {
     >
       {meta ? (
         <>
+          {/* Scan-sweep diégétique : descend une fois verticalement à
+              l'ouverture initiale. Présent dans le DOM uniquement
+              pendant `isEntering` pour que la `animation` CSS soit
+              re-déclenchée à chaque ouverture (mount/unmount). */}
+          {isEntering ? (
+            <div className="mg-panel__scan" aria-hidden="true">
+              <div className="mg-panel__scan-bar" />
+            </div>
+          ) : null}
+
           <header className="mg-panel__header">
             <div className="mg-panel__topline">
               <span className="mg-panel__code tracking-classified">
-                Dossier {meta.code} · {meta.domain}
+                Briefing · Dossier {meta.code} · {meta.domain}
               </span>
               <span className="mg-panel__hints">
                 <span className="mg-panel__esc">[esc]</span>
@@ -176,28 +247,38 @@ export function MatierePanel({ slug, isOpen, onClose }: MatierePanelProps) {
                 </button>
               </span>
             </div>
-            <h2 className="mg-panel__title">{meta.title}</h2>
+            {/* `caret` ajoute le ▌ pulsant via ::after CSS (1s steps(2)).
+                Retiré après 2s via setShowCaret(false). */}
+            <h2
+              className={`mg-panel__title${showCaret ? " caret" : ""}`}
+            >
+              {meta.title}
+            </h2>
           </header>
 
           <div
-            className={`mg-panel__body${bodyFading ? " is-fading" : ""}`}
+            className={
+              "mg-panel__body" +
+              (bodyFading ? " is-fading" : "") +
+              (isEntering ? " is-entering" : "")
+            }
             // tabIndex pour permettre overflow-scroll keyboard si besoin
           >
             <p className="mg-panel__symptom">{meta.symptom}</p>
 
             <div className="mg-panel__meta">
               <div>
-                <span className="mg-panel__meta-label">Fenêtre</span>
+                <span className="mg-panel__meta-label">Fenêtre d&apos;opportunité</span>
                 <span className="mg-panel__meta-value">{meta.window}</span>
               </div>
               <div>
-                <span className="mg-panel__meta-label">Couche</span>
+                <span className="mg-panel__meta-label">Couche du substrat</span>
                 <span className="mg-panel__meta-value">{meta.layer}</span>
               </div>
             </div>
 
             <div className="mg-panel__urgency-row">
-              <span className="mg-panel__meta-label">Urgence</span>
+              <span className="mg-panel__meta-label">Niveau d&apos;urgence</span>
               {(() => {
                 const u = urgencyView(meta.urgency);
                 return (

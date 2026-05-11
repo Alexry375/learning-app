@@ -89,10 +89,17 @@ type GraphData = { nodes: GraphNode[]; links: GraphLink[] };
 const BUBBLE_RADIUS = 14;
 const FLY_DURATION_S = 1.0;
 const FLY_DISTANCE_FACTOR = 3; // caméra à 3× radius de la bulle
-// Offset horizontal en *world space* sur l'axe `right` caméra, pour pousser
-// la bulle vers la moitié gauche de l'écran. ~1.4× radius donne un cadrage
-// qui rappelle Mario Galaxy (bulle ~25-30% from left).
-const SCREEN_LEFT_OFFSET = 1.4 * BUBBLE_RADIUS;
+// NDC x cible pour la bulle après le fly-in. -0.5 = quart gauche de l'écran
+// (centre = 0, bord gauche = -1). Le panneau matière occupe ~40% à droite
+// (clamp 420-580px sur largeur typique), donc la zone visible utile va de
+// NDC ≈ -1 à ≈ +0.2. Cibler -0.5 met la bulle au milieu de cette zone.
+// (Tâche A — remplace la constante SCREEN_LEFT_OFFSET = 1.4 * R = 19.6
+//  qui mettait la bulle à NDC ≈ -1.39 sur 1440×900 → ~40% hors-écran.)
+const TARGET_NDC_X = -0.5;
+// Fallback offset si on n'a pas accès au viewport au moment du fly (très
+// improbable : `useThree` rend `size` toujours défini). Cale-toi sur l'ancienne
+// constante pour ne pas casser de manière subtile.
+const FALLBACK_SCREEN_LEFT_OFFSET = 1.4 * BUBBLE_RADIUS;
 // Durée du fly-back (retour vers la pose pré-fly-in). Légèrement plus court
 // que le fly-in pour donner du rythme à la fermeture.
 const FLY_BACK_DURATION_S = 0.8;
@@ -149,6 +156,7 @@ function GraphContent({
   flyRef,
   onFlyComplete,
   orbitTargetRef,
+  sizeRef,
   isPaused,
 }: {
   graphData: GraphData;
@@ -157,6 +165,8 @@ function GraphContent({
   flyRef: React.MutableRefObject<FlyTarget | null>;
   onFlyComplete: (target: FlyTarget) => void;
   orbitTargetRef: React.MutableRefObject<THREE.Vector3>;
+  /** Dim courantes du Canvas (R3F `size`). Mises à jour à chaque resize. */
+  sizeRef: React.MutableRefObject<{ width: number; height: number }>;
   /** True quand on ne veut pas que le drag node soit autorisé (fly, panel ouvert). */
   isPaused: boolean;
 }) {
@@ -166,7 +176,16 @@ function GraphContent({
   const groupRef = useRef<THREE.Group>(null);
   const materialsRef = useRef<BubbleMaterial[]>([]);
   const camera = useThree((s) => s.camera);
+  const size = useThree((s) => s.size);
   const flyEndFiredRef = useRef<FlyTarget | null>(null);
+
+  // Tient sizeRef.current à jour ; lu par flyToBubble (composant parent) au
+  // moment du fly. Pas besoin de re-render — c'est juste un canal de
+  // synchronisation. R3F garantit que `size` change au resize.
+  useEffect(() => {
+    sizeRef.current.width = size.width;
+    sizeRef.current.height = size.height;
+  }, [size.width, size.height, sizeRef]);
 
   // Tune les forces d3 après le mount : on veut une répulsion plus forte pour
   // que les bulles ne se chevauchent pas (sans links pour les rapprocher, la
@@ -284,6 +303,14 @@ export default function GraphSceneClient() {
   const orbitTargetRef = useRef<THREE.Vector3>(new THREE.Vector3(0, 0, 0));
   // Ref de la caméra exposée par le Canvas (peuplée via onCreated).
   const cameraRef = useRef<THREE.Camera | null>(null);
+  // Taille courante du Canvas (mise à jour par <GraphContent> via useThree(size)).
+  // Lu au moment du fly pour recalculer l'offset latéral. Init à viewport
+  // window pour qu'un fly très précoce avant montage du Canvas ait quand
+  // même une valeur raisonnable (le wrapper fixed inset:0 → Canvas = window).
+  const sizeRef = useRef<{ width: number; height: number }>({
+    width: typeof window !== "undefined" ? window.innerWidth : 1440,
+    height: typeof window !== "undefined" ? window.innerHeight : 900,
+  });
   // Snapshot de la pose pré-fly-in. Capturé au premier fly-to-bubble depuis
   // l'état "panneau fermé". NE PAS écraser lors d'un swap matière (master-detail).
   const originPoseRef = useRef<{
@@ -302,11 +329,16 @@ export default function GraphSceneClient() {
    * - position cible = node + dir * 3*R (recule la caméra à 3R) + right * offset
    *   (décale la caméra latéralement → la bulle apparaît à gauche de l'écran).
    * - lookAt = centre de la bulle.
+   *
+   * `screenLeftOffset` est calculé dynamiquement par le caller à partir du
+   * fov caméra + aspect ratio viewport (cf. `flyToBubble`). Cela garantit
+   * que la bulle finit à NDC x = TARGET_NDC_X quel que soit le viewport.
    */
   const computeFlyToBubble = useCallback(
     (
       nodePos: THREE.Vector3,
       camera: THREE.Camera,
+      screenLeftOffset: number,
     ): { toPos: THREE.Vector3; toLookAt: THREE.Vector3 } => {
       // Direction depuis la bulle vers la caméra actuelle (garde l'angle de
       // vue, on se rapproche juste).
@@ -334,12 +366,56 @@ export default function GraphSceneClient() {
       const toPos = new THREE.Vector3()
         .copy(nodePos)
         .addScaledVector(dir, BUBBLE_RADIUS * FLY_DISTANCE_FACTOR)
-        .addScaledVector(right, SCREEN_LEFT_OFFSET);
+        .addScaledVector(right, screenLeftOffset);
 
       // lookAt = centre bulle (pas l'origine, sinon la bulle n'apparaît pas
       // centrée sur la moitié gauche).
       const toLookAt = nodePos.clone();
       return { toPos, toLookAt };
+    },
+    [],
+  );
+
+  /**
+   * Calcule l'offset world-space sur l'axe `right` caméra nécessaire pour
+   * placer la bulle à NDC x = TARGET_NDC_X après le fly-in.
+   *
+   * Géométrie : à distance `camDistance` de la cible, le demi-champ visible
+   * horizontalement (en world units) vaut
+   *   halfW = camDistance · tan(halfFovH)
+   * où halfFovH = atan(tan(halfFovV) · aspect).
+   *
+   * Pour amener la bulle à NDC x = -k (k>0), il faut décaler la caméra de
+   * `+k · halfW` sur l'axe `right` (la bulle apparaît alors à -k · halfW
+   * dans l'espace caméra). On retourne donc |k| · halfW.
+   *
+   * Recalculé à chaque fly-to (pas mis en cache) pour rester robuste au
+   * resize de la fenêtre entre deux flys.
+   */
+  const computeScreenLeftOffset = useCallback(
+    (
+      camera: THREE.Camera,
+      viewportWidth: number,
+      viewportHeight: number,
+    ): number => {
+      const camDistance = BUBBLE_RADIUS * FLY_DISTANCE_FACTOR;
+      // Récupère le fov vertical en degrés depuis la PerspectiveCamera.
+      // Fallback à 38° (valeur du Canvas) si la caméra n'a pas de fov.
+      const persp = camera as THREE.PerspectiveCamera;
+      const fovV = typeof persp.fov === "number" && persp.fov > 0 ? persp.fov : 38;
+      const halfFovV = (fovV * Math.PI) / 180 / 2;
+      // Aspect ratio courant — peut changer au resize. Garde contre /0
+      // au cas où le size initial est 0 (1er frame avant layout).
+      const safeHeight = viewportHeight > 0 ? viewportHeight : 1;
+      const safeWidth = viewportWidth > 0 ? viewportWidth : safeHeight;
+      const aspect = safeWidth / safeHeight;
+      const halfFovH = Math.atan(Math.tan(halfFovV) * aspect);
+      const halfWidthWorld = camDistance * Math.tan(halfFovH);
+      // Cap mou : si halfWidthWorld dégénère (NaN, négatif), fallback.
+      if (!Number.isFinite(halfWidthWorld) || halfWidthWorld <= 0) {
+        return FALLBACK_SCREEN_LEFT_OFFSET;
+      }
+      return Math.abs(TARGET_NDC_X) * halfWidthWorld;
     },
     [],
   );
@@ -367,7 +443,17 @@ export default function GraphSceneClient() {
         };
       }
 
-      const { toPos, toLookAt } = computeFlyToBubble(nodePos, camera);
+      // Recalcule l'offset latéral au moment du fly (robuste au resize).
+      const screenLeftOffset = computeScreenLeftOffset(
+        camera,
+        sizeRef.current.width,
+        sizeRef.current.height,
+      );
+      const { toPos, toLookAt } = computeFlyToBubble(
+        nodePos,
+        camera,
+        screenLeftOffset,
+      );
 
       flyRef.current = {
         kind: "to-bubble",
@@ -381,7 +467,7 @@ export default function GraphSceneClient() {
       };
       setIsFlying(true);
     },
-    [computeFlyToBubble],
+    [computeFlyToBubble, computeScreenLeftOffset],
   );
 
   /**
@@ -637,6 +723,7 @@ export default function GraphSceneClient() {
           flyRef={flyRef}
           onFlyComplete={handleFlyComplete}
           orbitTargetRef={orbitTargetRef}
+          sizeRef={sizeRef}
           isPaused={isPaused}
         />
 
