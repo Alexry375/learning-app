@@ -158,6 +158,7 @@ function GraphContent({
   orbitTargetRef,
   sizeRef,
   isPaused,
+  openedSlugRef,
 }: {
   graphData: GraphData;
   onNodeHover: (node: GraphNode | null) => void;
@@ -169,12 +170,17 @@ function GraphContent({
   sizeRef: React.MutableRefObject<{ width: number; height: number }>;
   /** True quand on ne veut pas que le drag node soit autorisé (fly, panel ouvert). */
   isPaused: boolean;
+  /** Slug de la bulle sélectionnée (lu dans useFrame pour la rotation locale). */
+  openedSlugRef: React.MutableRefObject<string | null>;
 }) {
   // any-typed ref — r3f-forcegraph's TS types don't expose tickFrame() cleanly
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const fgRef = useRef<any>(null);
   const groupRef = useRef<THREE.Group>(null);
   const materialsRef = useRef<BubbleMaterial[]>([]);
+  // Map slug → mesh, peuplée dans nodeThreeObject. Sert à faire tourner la
+  // bulle sélectionnée sur elle-même quand le panneau est ouvert.
+  const meshMapRef = useRef<Map<string, THREE.Mesh>>(new Map());
   const camera = useThree((s) => s.camera);
   const size = useThree((s) => s.size);
   const flyEndFiredRef = useRef<FlyTarget | null>(null);
@@ -214,22 +220,41 @@ function GraphContent({
     const mat = (mesh as THREE.Mesh & { bubbleMaterial: BubbleMaterial })
       .bubbleMaterial;
     materialsRef.current.push(mat);
+    meshMapRef.current.set(n.id, mesh);
     return mesh;
   }, []);
 
   useFrame((state, dt) => {
-    fgRef.current?.tickFrame();
+    // Pause de la simulation force-graph quand le panneau est ouvert ou
+    // qu'un fly est en cours. Garde la bulle cible figée à la position
+    // capturée au click (sinon elle continuait sa trajectoire d3 et sortait
+    // du cadre cinématique). Le wobble surface des bulles continue plus bas
+    // — c'est de la déformation shader, pas du déplacement.
+    if (!isPaused) {
+      fgRef.current?.tickFrame();
+    }
     const t = state.clock.elapsedTime;
     for (const mat of materialsRef.current) {
       updateBubbleMaterial(mat, dt, t);
     }
 
     // Gravitation : rotation très lente de l'ensemble du graphe autour de
-    // l'axe Y — ~1 tour toutes les 90s. Pausé pendant le fly pour éviter
-    // qu'une bulle qui s'éloigne perturbe la cible cinématique. Continue
-    // pendant que le panneau est ouvert (canvas vivant — cf. spec Tâche A).
-    if (groupRef.current && !flyRef.current) {
+    // l'axe Y — ~1 tour toutes les 90s. OFF pendant fly + panel ouvert
+    // (même raisons que la pause force-graph ci-dessus).
+    if (groupRef.current && !isPaused) {
       groupRef.current.rotation.y += dt * 0.07;
+    }
+
+    // Rotation locale de la bulle sélectionnée — la sphère "vient à toi" et
+    // tourne sur elle-même pendant que le panneau est ouvert. ~1 tour / 10s.
+    // Pas pendant le fly-in (openedSlug est encore null à ce moment) — la
+    // rotation locale commence proprement à l'ouverture du panneau.
+    const openedSlug = openedSlugRef.current;
+    if (openedSlug !== null) {
+      const selectedMesh = meshMapRef.current.get(openedSlug);
+      if (selectedMesh) {
+        selectedMesh.rotation.y += dt * 0.6;
+      }
     }
 
     // === Camera fly (to-bubble ou to-origin) ===
@@ -322,6 +347,9 @@ export default function GraphSceneClient() {
   const flyBackTimerRef = useRef<number | null>(null);
   // Timer de fin de slide-out (320ms). Annulable au démontage.
   const closeFinishTimerRef = useRef<number | null>(null);
+  // Ref miroir d'openedSlug — lu dans useFrame (sans re-render) pour piloter
+  // la rotation locale de la bulle sélectionnée.
+  const openedSlugRef = useRef<string | null>(null);
 
   /**
    * Calcule la cible de fly-in pour amener la bulle en screen-left.
@@ -630,6 +658,12 @@ export default function GraphSceneClient() {
     };
   }, []);
 
+  // Sync openedSlugRef ← openedSlug. Permet à useFrame (dans GraphContent)
+  // de lire la valeur courante sans re-render à chaque frame.
+  useEffect(() => {
+    openedSlugRef.current = openedSlug;
+  }, [openedSlug]);
+
   // Entrées palette (placeholders exclus + tri par order via registry).
   const paletteEntries = useMemo<PaletteEntry[]>(
     () =>
@@ -725,6 +759,7 @@ export default function GraphSceneClient() {
           orbitTargetRef={orbitTargetRef}
           sizeRef={sizeRef}
           isPaused={isPaused}
+          openedSlugRef={openedSlugRef}
         />
 
         <OrbitControls
@@ -746,6 +781,9 @@ export default function GraphSceneClient() {
         </EffectComposer>
       </Canvas>
 
+      {/* HUD top-right caché quand le panneau matière est ouvert (sinon il
+          overlapait avec [esc] [×] du panel). On garde aussi la fade-out
+          pendant le slide-in pour ne pas avoir un saut sec. */}
       <div
         style={{
           position: "fixed",
@@ -758,6 +796,8 @@ export default function GraphSceneClient() {
           color: "rgba(180, 195, 215, 0.55)",
           textAlign: "right",
           pointerEvents: "none",
+          opacity: openedSlug !== null ? 0 : 1,
+          transition: "opacity 240ms cubic-bezier(0.16, 1, 0.3, 1)",
         }}
       >
         <div style={{ color: "rgba(120, 170, 255, 0.9)", marginBottom: 4 }}>
@@ -812,6 +852,9 @@ export default function GraphSceneClient() {
         </div>
       )}
 
+      {/* Hint clavier bottom-left — caché quand le panneau matière est ouvert
+          (la bulle sélectionnée occupe la zone gauche, le hint devenait du
+          bruit visuel). */}
       <div
         style={{
           position: "fixed",
@@ -823,6 +866,8 @@ export default function GraphSceneClient() {
           textTransform: "uppercase",
           color: "rgba(180, 195, 215, 0.4)",
           pointerEvents: "none",
+          opacity: openedSlug !== null ? 0 : 1,
+          transition: "opacity 240ms cubic-bezier(0.16, 1, 0.3, 1)",
         }}
       >
         drag · scroll · click bulle · ctrl+alt+k rechercher
