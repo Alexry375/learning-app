@@ -369,6 +369,337 @@ html, body {
 }
 
 /* ===========================================================
+   Mario Galaxy split — panneau matière (slide-in droite) + palette
+   recherche (Ctrl+Alt+K). Tous ces composants vivent uniquement dans
+   le graphe `/` ; aucune route plein écran n'y touche.
+   =========================================================== */
+:root {
+  /* Background du panneau et de la palette — assemblage des tokens
+     existants pour rester dans la signature (deck profond + voile). */
+  --panel-bg: linear-gradient(180deg, rgba(14, 18, 38, 0.96), rgba(7, 9, 26, 0.99));
+  --panel-border: var(--rule-strong);
+  /* Largeur cible sur desktop : ~480px @1440p, capée pour mobile. */
+  --panel-width-desktop: clamp(420px, 42vw, 580px);
+  --panel-blur: 14px;
+}
+
+/* ----- Panneau matière split-screen ----- */
+.mg-panel {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: var(--panel-width-desktop);
+  z-index: 70;
+  background: var(--panel-bg);
+  backdrop-filter: blur(var(--panel-blur));
+  -webkit-backdrop-filter: blur(var(--panel-blur));
+  border-left: 1px solid var(--panel-border);
+  font-family: var(--font-mono);
+  color: var(--ink-primary);
+  /* Closed state : translateX hors écran. La classe `.is-open` fait
+     transitionner vers 0 avec la courbe canonique. Slide-out réutilise
+     une courbe plus sèche via override. */
+  transform: translateX(100%);
+  transition: transform 480ms cubic-bezier(0.16, 1, 0.3, 1);
+  display: flex;
+  flex-direction: column;
+  pointer-events: auto;
+}
+
+.mg-panel.is-open {
+  transform: translateX(0);
+}
+
+.mg-panel.is-closing {
+  transform: translateX(100%);
+  /* Slide-out : 320ms, courbe plus brutale (sortie sèche). */
+  transition: transform 320ms cubic-bezier(0.7, 0, 0.84, 0);
+}
+
+/* HEADER : code · domain · close hints + title */
+.mg-panel__header {
+  padding: 2rem 2.2rem 1.4rem;
+  border-bottom: 1px solid var(--rule);
+}
+
+.mg-panel__topline {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  font-size: 0.62rem;
+  color: var(--ink-dim);
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  margin-bottom: 0.9rem;
+}
+
+.mg-panel__code {
+  /* mémo : `code · domain` — la séparation visuelle est dans le composant. */
+  color: var(--ink-dim);
+}
+
+.mg-panel__hints {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.6rem;
+  color: var(--ink-faint);
+}
+
+.mg-panel__esc {
+  color: var(--ink-faint);
+  /* Hint passif : aucun click, pas de transition. */
+}
+
+.mg-panel__close {
+  background: transparent;
+  border: none;
+  padding: 0 0.2rem;
+  font-family: var(--font-mono);
+  font-size: 0.85rem;
+  line-height: 1;
+  color: var(--ink-dim);
+  cursor: pointer;
+  transition: color 220ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.mg-panel__close:hover {
+  color: var(--alert);
+}
+
+.mg-panel__title {
+  font-family: var(--font-mono);
+  font-size: 1.15rem;
+  line-height: 1.3;
+  color: var(--ink-primary);
+  margin: 0;
+}
+
+/* BODY : cross-fade utilisé pour le swap de matière sans fermer */
+.mg-panel__body {
+  padding: 1.6rem 2.2rem 1.4rem;
+  flex: 1 1 auto;
+  overflow-y: auto;
+  transition: opacity 120ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.mg-panel__body.is-fading {
+  opacity: 0;
+}
+
+.mg-panel__symptom {
+  font-family: var(--font-mono);
+  font-size: 0.92rem;
+  line-height: 1.55;
+  color: var(--ink-primary);
+  margin: 0 0 1.6rem 0;
+}
+
+.mg-panel__meta {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1.2rem 1.4rem;
+  margin-bottom: 1.6rem;
+}
+
+.mg-panel__meta-label {
+  display: block;
+  font-size: 0.6rem;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+  margin-bottom: 0.35rem;
+}
+
+.mg-panel__meta-value {
+  font-family: var(--font-mono);
+  font-size: 0.86rem;
+  color: var(--ink-primary);
+}
+
+.mg-panel__urgency-row {
+  margin-bottom: 0.4rem;
+}
+
+.mg-panel__urgency-bar {
+  font-family: var(--font-mono);
+  font-size: 0.86rem;
+  letter-spacing: 0.04em;
+  /* Couleur surchargée inline par variant via --urgency-color */
+  color: var(--urgency-color, var(--phosphor-dim));
+}
+
+.mg-panel__urgency-label {
+  margin-left: 0.6rem;
+  color: var(--ink-dim);
+  font-size: 0.72rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+/* FOOTER + CTA centré */
+.mg-panel__footer {
+  padding: 1.4rem 2.2rem 2rem;
+  border-top: 1px solid var(--rule);
+  display: flex;
+  justify-content: center;
+}
+
+.mg-panel__cta {
+  /* Override de taille uniquement — le hover classified vient de .btn-int. */
+  padding: 0.85rem 1.6rem;
+  font-size: 0.86rem;
+  min-width: 240px;
+  justify-content: center;
+}
+
+/* Mobile : panneau prend 100vw (sinon overflow horizontal). On garde
+   la même DA, juste la largeur change. (Audit I7 — resize/petits écrans.) */
+@media (max-width: 640px) {
+  .mg-panel {
+    width: 100vw;
+    border-left: none;
+  }
+}
+
+/* ----- Palette recherche Ctrl+Alt+K ----- */
+.mg-palette-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 79;
+  background: rgba(7, 9, 26, 0.35);
+  backdrop-filter: blur(2px);
+  -webkit-backdrop-filter: blur(2px);
+  opacity: 0;
+  transition: opacity 220ms cubic-bezier(0.16, 1, 0.3, 1);
+  pointer-events: none;
+}
+
+.mg-palette-backdrop.is-open {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.mg-palette {
+  position: fixed;
+  top: 18vh;
+  left: 50%;
+  width: min(640px, 90vw);
+  z-index: 80;
+  background: var(--panel-bg);
+  backdrop-filter: blur(var(--panel-blur));
+  -webkit-backdrop-filter: blur(var(--panel-blur));
+  border: 1px solid var(--panel-border);
+  font-family: var(--font-mono);
+  color: var(--ink-primary);
+  /* État fermé : translateX(-50%) garde le centrage ; opacity 0 + scale */
+  transform: translateX(-50%) scale(0.96);
+  opacity: 0;
+  transition:
+    transform 220ms cubic-bezier(0.16, 1, 0.3, 1),
+    opacity 220ms cubic-bezier(0.16, 1, 0.3, 1);
+  pointer-events: none;
+}
+
+.mg-palette.is-open {
+  transform: translateX(-50%) scale(1);
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.mg-palette.is-closing {
+  /* Fermeture : 160ms ease-out, courbe légèrement plus rapide. */
+  transition:
+    transform 160ms cubic-bezier(0.4, 0, 1, 1),
+    opacity 160ms cubic-bezier(0.4, 0, 1, 1);
+  opacity: 0;
+  transform: translateX(-50%) scale(0.97);
+}
+
+.mg-palette__input {
+  display: block;
+  width: 100%;
+  padding: 1rem 1.2rem;
+  background: transparent;
+  border: none;
+  border-bottom: 1px solid var(--phosphor-dim);
+  font-family: var(--font-mono);
+  font-size: 1.1rem;
+  color: var(--ink-primary);
+  outline: none;
+}
+
+.mg-palette__input::placeholder {
+  color: var(--ink-faint);
+}
+
+.mg-palette__results {
+  max-height: 50vh;
+  overflow-y: auto;
+}
+
+.mg-palette__item {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: 1rem;
+  align-items: baseline;
+  padding: 0.9rem 1.2rem;
+  border-bottom: 1px solid var(--rule);
+  border-left: 2px solid transparent;
+  cursor: pointer;
+  transition:
+    background 160ms cubic-bezier(0.16, 1, 0.3, 1),
+    border-left-color 160ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.mg-palette__item.is-active,
+.mg-palette__item:hover {
+  background: rgba(58, 255, 149, 0.06);
+  border-left-color: var(--phosphor);
+}
+
+.mg-palette__item-code {
+  font-family: var(--font-mono);
+  color: var(--phosphor);
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  font-size: 0.72rem;
+}
+
+.mg-palette__item-title {
+  font-family: var(--font-mono);
+  font-size: 0.92rem;
+  color: var(--ink-primary);
+}
+
+.mg-palette__item-domain {
+  color: var(--ink-dim);
+  font-size: 0.72rem;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  text-align: right;
+}
+
+.mg-palette__empty {
+  padding: 1.2rem 1.2rem;
+  color: var(--ink-faint);
+  font-size: 0.8rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.mg-palette__footer {
+  padding: 0.7rem 1.2rem;
+  border-top: 1px solid var(--rule);
+  text-align: right;
+  font-size: 0.62rem;
+  color: var(--ink-faint);
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+}
+
+/* ===========================================================
    Reduce motion respect
    =========================================================== */
 @media (prefers-reduced-motion: reduce) {

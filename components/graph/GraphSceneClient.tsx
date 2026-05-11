@@ -13,16 +13,40 @@
  * Le rendu des nodes (la bulle elle-même) reste sous notre contrôle total via
  * `createBubbleMesh` du module bubble/.
  *
- * Comportement click :
- *   1) snapshot de la position courante de la caméra et de la bulle cible ;
- *   2) anim de ~1s easeInOutCubic vers (bullePos + dir * 3*radius) ;
- *   3) OrbitControls désactivés pendant l'anim, clicks ignorés ;
- *   4) à la fin de l'anim, router.push('/anomalie/<slug>') — la transition est
- *      atomique avec la fin du fly (pas de saut visible).
+ * --- Mario Galaxy split-screen ---
+ *
+ * Click sur une bulle (ou sélection palette) :
+ *   1) snapshot caméra (`originPoseRef`) pour le fly-back ;
+ *   2) fly-to ~1s easeInOutCubic qui amène la bulle en *screen-left* (offset
+ *      sur l'axe `right` caméra → la bulle finit à ~25-30% from left) ;
+ *   3) OrbitControls désactivés pendant l'anim ;
+ *   4) à la fin de l'anim → ouverture du <MatierePanel> (slide-in droite).
+ *      Plus de router.push automatique. Le CTA "Entrer dans la matière"
+ *      navigue explicitement.
+ *
+ * Fermeture (Esc / click outside / × du panneau) :
+ *   - slide-out du panneau (320ms) ;
+ *   - à mi-chemin, fly-back caméra (~0.8s) vers `originPoseRef` ;
+ *   - ré-active OrbitControls.
+ *
+ * Swap matière sans fermer (autre bulle pendant panneau ouvert) :
+ *   - on enchaîne fly-to + le panneau cross-fade son contenu.
+ *   - on ne reset PAS `originPoseRef` (la pose de retour reste la pose
+ *     d'origine — pas celle de la matière qu'on quitte). Cohérent avec
+ *     le pattern *master-detail*.
+ *
+ * Palette de recherche : Ctrl+Alt+K → SearchPalette, sélection déclenche
+ * le même flow que le click-bulle.
  */
 
 import * as React from "react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { useRouter } from "next/navigation";
 import * as THREE from "three";
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
@@ -41,9 +65,13 @@ import {
   colorFromSlug,
   type BubbleMaterial,
 } from "@/components/bubble/bubble-material";
-import { Backdrop } from "@/components/bubble/Backdrop";
+// <Backdrop> retiré du graphe (sphère mal dimensionnée visible au centre
+// quand la caméra est à l'extérieur). Toujours utilisé par le proto
+// standalone <BubbleSceneClient>.
 import { ProceduralEnvironment } from "@/components/bubble/ProceduralEnvironment";
 import { ANOMALIES } from "@/anomalies/registry";
+import { MatierePanel } from "./MatierePanel";
+import { SearchPalette, type PaletteEntry } from "./SearchPalette";
 
 type GraphNode = {
   id: string;
@@ -61,6 +89,20 @@ type GraphData = { nodes: GraphNode[]; links: GraphLink[] };
 const BUBBLE_RADIUS = 14;
 const FLY_DURATION_S = 1.0;
 const FLY_DISTANCE_FACTOR = 3; // caméra à 3× radius de la bulle
+// Offset horizontal en *world space* sur l'axe `right` caméra, pour pousser
+// la bulle vers la moitié gauche de l'écran. ~1.4× radius donne un cadrage
+// qui rappelle Mario Galaxy (bulle ~25-30% from left).
+const SCREEN_LEFT_OFFSET = 1.4 * BUBBLE_RADIUS;
+// Durée du fly-back (retour vers la pose pré-fly-in). Légèrement plus court
+// que le fly-in pour donner du rythme à la fermeture.
+const FLY_BACK_DURATION_S = 0.8;
+// Délai à mi-chemin du slide-out panneau avant de lancer le fly-back.
+// Slide-out = 320ms ; on lance le fly-back à 160ms.
+const FLY_BACK_DELAY_MS = 160;
+// Pose initiale du Canvas — utilisée comme fallback de fly-back si on
+// n'a aucun snapshot (deep-link, edge case).
+const INITIAL_CAM_POS = new THREE.Vector3(0, 0, 220);
+const INITIAL_LOOKAT = new THREE.Vector3(0, 0, 0);
 
 /** easeInOutCubic — t ∈ [0, 1] */
 function easeInOutCubic(t: number): number {
@@ -68,16 +110,19 @@ function easeInOutCubic(t: number): number {
 }
 
 /**
- * Snapshot des positions cibles capturé au moment du click.
- * Plus simple et plus cinématique que suivre un node qui bouge.
+ * Snapshot de cible cinématique — utilisé pour les deux directions
+ * (fly-in vers une bulle, fly-back vers l'origine).
  */
-type FlySnapshot = {
-  slug: string;
+type FlyTarget = {
+  kind: "to-bubble" | "to-origin";
+  /** slug ciblé (uniquement pour `to-bubble`, sert au callback de fin). */
+  slug: string | null;
   fromPos: THREE.Vector3;
   toPos: THREE.Vector3;
   fromLookAt: THREE.Vector3;
   toLookAt: THREE.Vector3;
-  startTime: number; // sera initialisé au premier frame d'anim
+  duration: number;
+  startTime: number; // initialisé au premier frame d'anim
 };
 
 function buildGraphData(): GraphData {
@@ -104,15 +149,16 @@ function GraphContent({
   flyRef,
   onFlyComplete,
   orbitTargetRef,
-  isFlying,
+  isPaused,
 }: {
   graphData: GraphData;
   onNodeHover: (node: GraphNode | null) => void;
   onNodeClick: (node: GraphNode) => void;
-  flyRef: React.MutableRefObject<FlySnapshot | null>;
-  onFlyComplete: (slug: string) => void;
+  flyRef: React.MutableRefObject<FlyTarget | null>;
+  onFlyComplete: (target: FlyTarget) => void;
   orbitTargetRef: React.MutableRefObject<THREE.Vector3>;
-  isFlying: boolean;
+  /** True quand on ne veut pas que le drag node soit autorisé (fly, panel ouvert). */
+  isPaused: boolean;
 }) {
   // any-typed ref — r3f-forcegraph's TS types don't expose tickFrame() cleanly
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -120,7 +166,7 @@ function GraphContent({
   const groupRef = useRef<THREE.Group>(null);
   const materialsRef = useRef<BubbleMaterial[]>([]);
   const camera = useThree((s) => s.camera);
-  const flyEndFiredRef = useRef<string | null>(null);
+  const flyEndFiredRef = useRef<FlyTarget | null>(null);
 
   // Tune les forces d3 après le mount : on veut une répulsion plus forte pour
   // que les bulles ne se chevauchent pas (sans links pour les rapprocher, la
@@ -141,6 +187,10 @@ function GraphContent({
       segments: 96,
       wobbleAmp: n.placeholder ? 0.03 : 0.1,
       wobbleFreq: 1.8,
+      // Adoucissement iridescence / env reflets — réduit le banding rasant
+      // (cf. Tâche D.2). Le proto standalone garde les defaults.
+      iridescenceAmp: 0.6,
+      envMapIntensityScale: 0.7,
     });
     const mat = (mesh as THREE.Mesh & { bubbleMaterial: BubbleMaterial })
       .bubbleMaterial;
@@ -157,23 +207,22 @@ function GraphContent({
 
     // Gravitation : rotation très lente de l'ensemble du graphe autour de
     // l'axe Y — ~1 tour toutes les 90s. Pausé pendant le fly pour éviter
-    // qu'une bulle qui s'éloigne perturbe la cible cinématique.
+    // qu'une bulle qui s'éloigne perturbe la cible cinématique. Continue
+    // pendant que le panneau est ouvert (canvas vivant — cf. spec Tâche A).
     if (groupRef.current && !flyRef.current) {
       groupRef.current.rotation.y += dt * 0.07;
     }
 
-    // === Camera fly-to (snapshot at click time) ===
+    // === Camera fly (to-bubble ou to-origin) ===
     const fly = flyRef.current;
     if (fly) {
-      // initialise startTime au tout premier frame du fly
       if (fly.startTime < 0) {
         fly.startTime = t;
       }
       const elapsed = t - fly.startTime;
-      const raw = Math.min(elapsed / FLY_DURATION_S, 1);
+      const raw = Math.min(elapsed / fly.duration, 1);
       const k = easeInOutCubic(raw);
 
-      // Interpolation position + lookAt
       camera.position.lerpVectors(fly.fromPos, fly.toPos, k);
       const currentLook = new THREE.Vector3().lerpVectors(
         fly.fromLookAt,
@@ -181,15 +230,15 @@ function GraphContent({
         k,
       );
       camera.lookAt(currentLook);
-      // Mémorise le lookAt courant pour qu'un prochain click capture le bon
-      // `fromLookAt` (utile uniquement si on relance un fly sans avoir
-      // démonté la scène — pas le cas normal puisqu'on navigue).
+      // Mémorise le lookAt courant pour qu'un prochain fly capture le bon
+      // `fromLookAt`. Lu aussi par OrbitControls quand on lui rend la main.
       orbitTargetRef.current.copy(currentLook);
 
-      if (raw >= 1 && flyEndFiredRef.current !== fly.slug) {
-        // Fire-once guard : router.push doit être atomique avec fin de fly.
-        flyEndFiredRef.current = fly.slug;
-        onFlyComplete(fly.slug);
+      if (raw >= 1 && flyEndFiredRef.current !== fly) {
+        // Fire-once guard par identité de l'objet (un même target ne fire
+        // qu'une fois ; un swap → nouveau target → re-fire).
+        flyEndFiredRef.current = fly;
+        onFlyComplete(fly);
       }
     }
   });
@@ -206,7 +255,7 @@ function GraphContent({
         // Pas de links visibles — sémantique pas encore définie. Le layout
         // tient par la répulsion mutuelle (charge ajustée plus haut).
         linkVisibility={false}
-        enableNodeDrag={!isFlying}
+        enableNodeDrag={!isPaused}
         onNodeHover={(node: object | null) =>
           onNodeHover((node as GraphNode | null) ?? null)
         }
@@ -220,63 +269,310 @@ export default function GraphSceneClient() {
   const router = useRouter();
   const graphData = useMemo(buildGraphData, []);
   const [hoveredNode, setHoveredNode] = useState<GraphNode | null>(null);
+  // True pendant un fly (in ou back) — désactive OrbitControls + drag node.
   const [isFlying, setIsFlying] = useState(false);
+  // Slug de la matière ouverte (panneau visible). null = panneau fermé.
+  const [openedSlug, setOpenedSlug] = useState<string | null>(null);
+  // True pendant le slide-out (avant que `openedSlug` ne soit reset à null).
+  const [isPanelClosing, setIsPanelClosing] = useState(false);
+  // Palette de recherche
+  const [paletteOpen, setPaletteOpen] = useState(false);
+
   // Ref source de vérité pour l'anim (lue à chaque frame, n'a pas besoin de re-render)
-  const flyRef = useRef<FlySnapshot | null>(null);
+  const flyRef = useRef<FlyTarget | null>(null);
   // Cible courante d'OrbitControls (mutée pendant le fly pour rester cohérent).
   const orbitTargetRef = useRef<THREE.Vector3>(new THREE.Vector3(0, 0, 0));
   // Ref de la caméra exposée par le Canvas (peuplée via onCreated).
   const cameraRef = useRef<THREE.Camera | null>(null);
+  // Snapshot de la pose pré-fly-in. Capturé au premier fly-to-bubble depuis
+  // l'état "panneau fermé". NE PAS écraser lors d'un swap matière (master-detail).
+  const originPoseRef = useRef<{
+    pos: THREE.Vector3;
+    look: THREE.Vector3;
+  } | null>(null);
+  // Timer de fly-back (mi-chemin slide-out). Annulable si l'utilisateur
+  // re-clique avant la fin.
+  const flyBackTimerRef = useRef<number | null>(null);
+  // Timer de fin de slide-out (320ms). Annulable au démontage.
+  const closeFinishTimerRef = useRef<number | null>(null);
 
-  const handleNodeClick = useCallback((node: GraphNode) => {
-    if (node.placeholder) return;
-    // Ignore clicks pendant le fly (la spec exige un comportement défini :
-    // re-cliquer une autre bulle pendant l'anim est ignoré).
-    if (flyRef.current !== null) return;
+  /**
+   * Calcule la cible de fly-in pour amener la bulle en screen-left.
+   * - direction = (camera → node) normalisée.
+   * - position cible = node + dir * 3*R (recule la caméra à 3R) + right * offset
+   *   (décale la caméra latéralement → la bulle apparaît à gauche de l'écran).
+   * - lookAt = centre de la bulle.
+   */
+  const computeFlyToBubble = useCallback(
+    (
+      nodePos: THREE.Vector3,
+      camera: THREE.Camera,
+    ): { toPos: THREE.Vector3; toLookAt: THREE.Vector3 } => {
+      // Direction depuis la bulle vers la caméra actuelle (garde l'angle de
+      // vue, on se rapproche juste).
+      const dir = new THREE.Vector3().subVectors(camera.position, nodePos);
+      if (dir.lengthSq() < 1e-6) {
+        dir.set(0, 0, 1);
+      }
+      dir.normalize();
 
+      // Axe `right` caméra = cross(up, -dir) ≈ cross(up, dirFromCamToNode).
+      // On veut l'axe horizontal de la caméra ; selon l'orientation cam.up,
+      // on prend cross(up, dir) (où dir va de node vers cam). Pour pousser
+      // la bulle visuellement à gauche de l'écran, il faut décaler la
+      // caméra vers la *droite* du repère caméra. `right` = cross(up, dir).
+      // Note: on utilise cross(camera.up, dir) — on garde camera.up tel quel
+      // (typiquement Y+).
+      const right = new THREE.Vector3()
+        .crossVectors(camera.up, dir)
+        .normalize();
+      // Si `right` est dégénéré (cam pile sur l'axe Y), fallback X+.
+      if (right.lengthSq() < 1e-6) {
+        right.set(1, 0, 0);
+      }
+
+      const toPos = new THREE.Vector3()
+        .copy(nodePos)
+        .addScaledVector(dir, BUBBLE_RADIUS * FLY_DISTANCE_FACTOR)
+        .addScaledVector(right, SCREEN_LEFT_OFFSET);
+
+      // lookAt = centre bulle (pas l'origine, sinon la bulle n'apparaît pas
+      // centrée sur la moitié gauche).
+      const toLookAt = nodePos.clone();
+      return { toPos, toLookAt };
+    },
+    [],
+  );
+
+  /**
+   * Lance un fly-to-bubble vers le node `slug`. Capture le snapshot pré-fly-in
+   * si on n'en a pas déjà un (premier fly depuis état fermé).
+   */
+  const flyToBubble = useCallback(
+    (node: GraphNode) => {
+      const camera = cameraRef.current;
+      if (!camera) return;
+
+      const nx = node.x ?? 0;
+      const ny = node.y ?? 0;
+      const nz = node.z ?? 0;
+      const nodePos = new THREE.Vector3(nx, ny, nz);
+
+      // Snapshot pré-fly-in *si* c'est le premier fly depuis l'état fermé.
+      // Lors d'un swap matière (panel ouvert), on garde la pose d'origine.
+      if (originPoseRef.current === null) {
+        originPoseRef.current = {
+          pos: camera.position.clone(),
+          look: orbitTargetRef.current.clone(),
+        };
+      }
+
+      const { toPos, toLookAt } = computeFlyToBubble(nodePos, camera);
+
+      flyRef.current = {
+        kind: "to-bubble",
+        slug: node.id,
+        fromPos: camera.position.clone(),
+        toPos,
+        fromLookAt: orbitTargetRef.current.clone(),
+        toLookAt,
+        duration: FLY_DURATION_S,
+        startTime: -1,
+      };
+      setIsFlying(true);
+    },
+    [computeFlyToBubble],
+  );
+
+  /**
+   * Lance un fly-back vers la pose d'origine (snapshot pré-fly-in). Si pas
+   * de snapshot (cas improbable mais possible si on est entré par deep-link
+   * et qu'on a navigué autrement), fallback sur la pose initiale.
+   */
+  const flyBack = useCallback(() => {
     const camera = cameraRef.current;
     if (!camera) return;
 
-    // Snapshot des positions au moment du click (positions de node mises à
-    // jour à chaque tick du force-graph par vasturiano, donc x/y/z dispo).
-    const nx = node.x ?? 0;
-    const ny = node.y ?? 0;
-    const nz = node.z ?? 0;
-    const nodePos = new THREE.Vector3(nx, ny, nz);
-
-    // Direction depuis la bulle vers la caméra actuelle (on garde l'angle de
-    // vue de l'utilisateur, on se rapproche juste).
-    const dir = new THREE.Vector3().subVectors(camera.position, nodePos);
-    if (dir.lengthSq() < 1e-6) {
-      // edge case : caméra exactement sur la bulle (improbable mais safe)
-      dir.set(0, 0, 1);
-    }
-    dir.normalize();
-
-    const targetPos = new THREE.Vector3()
-      .copy(nodePos)
-      .addScaledVector(dir, BUBBLE_RADIUS * FLY_DISTANCE_FACTOR);
+    const target = originPoseRef.current ?? {
+      pos: INITIAL_CAM_POS.clone(),
+      look: INITIAL_LOOKAT.clone(),
+    };
 
     flyRef.current = {
-      slug: node.id,
+      kind: "to-origin",
+      slug: null,
       fromPos: camera.position.clone(),
-      toPos: targetPos,
+      toPos: target.pos.clone(),
       fromLookAt: orbitTargetRef.current.clone(),
-      toLookAt: nodePos.clone(),
-      startTime: -1, // sera fixé au premier frame du fly
+      toLookAt: target.look.clone(),
+      duration: FLY_BACK_DURATION_S,
+      startTime: -1,
     };
     setIsFlying(true);
   }, []);
 
-  const handleFlyComplete = useCallback(
-    (slug: string) => {
-      // Atomique : on push immédiatement à la fin du fly.
-      // On ne reset PAS flyRef ici (la caméra reste à sa position finale,
-      // la nav prend le relais — pas de saut visible).
-      router.push(`/anomalie/${slug}`);
+  /**
+   * Click sur une bulle :
+   *  - si placeholder → ignore.
+   *  - si on est déjà en plein fly → ignore.
+   *  - si panneau ouvert et même slug → ignore (rien à faire).
+   *  - sinon : fly-to (+ snapshot si fermé) ; à la fin du fly, le callback
+   *    `handleFlyComplete` ouvrira le panneau (ou swap son contenu).
+   */
+  const handleNodeClick = useCallback(
+    (node: GraphNode) => {
+      if (node.placeholder) return;
+      if (flyRef.current !== null) return;
+      if (openedSlug === node.id && !isPanelClosing) {
+        // Déjà ouvert sur cette matière — pas de re-fly inutile.
+        return;
+      }
+
+      // Cas swap : panneau ouvert, autre matière. On met à jour `openedSlug`
+      // *immédiatement* pour que le panneau cross-fade le contenu, et on
+      // enchaîne le fly. (Spec : "on ne ferme pas le panneau".)
+      if (openedSlug !== null && openedSlug !== node.id) {
+        setOpenedSlug(node.id);
+      }
+      // Annule un fly-back ET le reset différé en cours (au cas où on a
+      // re-cliqué pendant que le panneau était en train de se fermer).
+      // Sans le second clear, le timer de 320ms reset `openedSlug=null`
+      // *après* notre setOpenedSlug → on perdrait le swap.
+      if (flyBackTimerRef.current !== null) {
+        window.clearTimeout(flyBackTimerRef.current);
+        flyBackTimerRef.current = null;
+      }
+      if (closeFinishTimerRef.current !== null) {
+        window.clearTimeout(closeFinishTimerRef.current);
+        closeFinishTimerRef.current = null;
+      }
+      if (isPanelClosing) {
+        setIsPanelClosing(false);
+      }
+      flyToBubble(node);
     },
-    [router],
+    [openedSlug, isPanelClosing, flyToBubble],
   );
+
+  /**
+   * Callback fin de fly. Si c'était un fly-to-bubble, ouvre le panneau.
+   * Si c'était un fly-back, reset le snapshot d'origine.
+   */
+  const handleFlyComplete = useCallback((target: FlyTarget) => {
+    // Reset flyRef + isFlying.
+    flyRef.current = null;
+    setIsFlying(false);
+
+    if (target.kind === "to-bubble" && target.slug) {
+      setOpenedSlug(target.slug);
+    } else if (target.kind === "to-origin") {
+      // Fly-back terminé : on est revenu à la pose pré-fly-in. On invalide
+      // le snapshot pour qu'une prochaine ouverture re-capture la pose
+      // courante (qui peut être différente si l'utilisateur a draggé entre
+      // temps — mais ici on vient juste de finir le fly, donc identique).
+      originPoseRef.current = null;
+    }
+  }, []);
+
+  /**
+   * Demande de fermeture du panneau (Esc, click outside, ×).
+   * - slide-out 320ms ;
+   * - à mi-chemin (FLY_BACK_DELAY_MS) → flyBack ;
+   * - à la fin du fly-back → handleFlyComplete reset le snapshot.
+   */
+  const handleClose = useCallback(() => {
+    if (openedSlug === null) return;
+    if (isPanelClosing) return; // déjà en train de fermer
+    setIsPanelClosing(true);
+    // À mi-chemin du slide-out (160ms / 320ms), démarre le fly-back.
+    flyBackTimerRef.current = window.setTimeout(() => {
+      flyBackTimerRef.current = null;
+      flyBack();
+    }, FLY_BACK_DELAY_MS);
+    // À la fin du slide-out (320ms), reset openedSlug + isPanelClosing.
+    // Le fly-back lui continue son anim derrière. Timer ref pour cleanup
+    // si l'utilisateur démonte la page entre temps.
+    closeFinishTimerRef.current = window.setTimeout(() => {
+      closeFinishTimerRef.current = null;
+      setOpenedSlug(null);
+      setIsPanelClosing(false);
+    }, 320);
+  }, [openedSlug, isPanelClosing, flyBack]);
+
+  /**
+   * Click sur le wrapper (zone non-panneau, non-bulle) :
+   *   - si panneau ouvert → fermeture.
+   *   - sinon → no-op (OrbitControls a déjà géré le drag).
+   *
+   * Le panneau lui-même `stopPropagation` sur ses click internes pour ne pas
+   * remonter ici. Les click-bulles passent par `onNodeClick` du forcegraph
+   * et n'atteignent pas non plus ce handler (events R3F vs DOM).
+   */
+  const handleWrapperClick = useCallback(() => {
+    if (openedSlug !== null && !isPanelClosing) {
+      handleClose();
+    }
+  }, [openedSlug, isPanelClosing, handleClose]);
+
+  /**
+   * Shortcut Ctrl+Alt+K → ouvre la palette. Listener global pour que la
+   * palette s'ouvre même si un input ailleurs avait le focus.
+   *
+   * Note Tâche B : la palette n'est pas accessible depuis `/anomalie/<slug>`
+   * car ce composant n'est monté que sur `/`.
+   */
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (e.ctrlKey && e.altKey && (e.key === "k" || e.key === "K")) {
+        e.preventDefault();
+        setPaletteOpen((open) => !open);
+      }
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, []);
+
+  // Cleanup timers au démontage
+  useEffect(() => {
+    return () => {
+      if (flyBackTimerRef.current !== null) {
+        window.clearTimeout(flyBackTimerRef.current);
+      }
+      if (closeFinishTimerRef.current !== null) {
+        window.clearTimeout(closeFinishTimerRef.current);
+      }
+    };
+  }, []);
+
+  // Entrées palette (placeholders exclus + tri par order via registry).
+  const paletteEntries = useMemo<PaletteEntry[]>(
+    () =>
+      ANOMALIES.map((a) => ({
+        slug: a.slug,
+        code: a.code,
+        title: a.title,
+        domain: a.domain,
+      })),
+    [],
+  );
+
+  const handlePaletteSelect = useCallback(
+    (slug: string) => {
+      // Reconstruit un GraphNode-like ; on trouve les positions courantes
+      // dans graphData.nodes (mises à jour par r3f-forcegraph en place).
+      const node = graphData.nodes.find((n) => n.id === slug);
+      if (!node) return;
+      handleNodeClick(node);
+    },
+    [graphData, handleNodeClick],
+  );
+
+  // Le canvas reste pleinement interactif tant que le panneau est fermé.
+  // OrbitControls est désactivé pendant le fly (in ou back) ET tant que le
+  // panneau est ouvert (lecture du briefing, pas de manip 3D).
+  const orbitEnabled = !isFlying && openedSlug === null;
+  // True quand on ne veut pas que le drag node soit autorisé.
+  const isPaused = isFlying || openedSlug !== null;
 
   return (
     <div
@@ -291,6 +587,7 @@ export default function GraphSceneClient() {
               ? "wait"
               : "grab",
       }}
+      onClick={handleWrapperClick}
     >
       <Canvas
         camera={{ position: [0, 0, 220], fov: 38 }}
@@ -300,27 +597,34 @@ export default function GraphSceneClient() {
           cameraRef.current = camera;
         }}
       >
-        <Backdrop />
+        {/* <Backdrop /> retiré : la sphère radius=30 BackSide était mal
+            dimensionnée pour ce contexte (caméra à z=220, donc à l'extérieur
+            de la sphère → la backdrop apparaissait comme un petit objet
+            central par réfraction des bulles transmission). La
+            ProceduralEnvironment ci-dessous donne suffisamment de contenu
+            à réfracter. (Tâche D.1) */}
         <ProceduralEnvironment />
 
         <ambientLight intensity={0.4} color="#202840" />
+        {/* Intensités réduites (Tâche D.2) — adoucit les bords de bulles
+            cramés à incidence rasante sur GPU réel. */}
         <pointLight
           position={[60, 30, 30]}
-          intensity={300}
+          intensity={160}
           decay={1.5}
           distance={600}
           color="#66c8ff"
         />
         <pointLight
           position={[-50, 20, -20]}
-          intensity={250}
+          intensity={130}
           decay={1.5}
           distance={600}
           color="#ff66c8"
         />
         <pointLight
           position={[20, -40, 10]}
-          intensity={180}
+          intensity={100}
           decay={1.5}
           distance={600}
           color="#ffaa66"
@@ -333,11 +637,11 @@ export default function GraphSceneClient() {
           flyRef={flyRef}
           onFlyComplete={handleFlyComplete}
           orbitTargetRef={orbitTargetRef}
-          isFlying={isFlying}
+          isPaused={isPaused}
         />
 
         <OrbitControls
-          enabled={!isFlying}
+          enabled={orbitEnabled}
           enableDamping
           dampingFactor={0.08}
           enablePan={false}
@@ -377,7 +681,7 @@ export default function GraphSceneClient() {
         </div>
       </div>
 
-      {hoveredNode && !hoveredNode.placeholder && !isFlying && (
+      {hoveredNode && !hoveredNode.placeholder && !isFlying && openedSlug === null && (
         <div
           style={{
             position: "fixed",
@@ -434,8 +738,25 @@ export default function GraphSceneClient() {
           pointerEvents: "none",
         }}
       >
-        drag · scroll · click bulle pour ouvrir
+        drag · scroll · click bulle · ctrl+alt+k rechercher
       </div>
+
+      {/* Panneau Mario Galaxy */}
+      <MatierePanel
+        slug={openedSlug}
+        isOpen={openedSlug !== null && !isPanelClosing}
+        onClose={handleClose}
+      />
+
+      {/* Palette de recherche */}
+      <SearchPalette
+        isOpen={paletteOpen}
+        entries={paletteEntries}
+        onSelect={(slug) => {
+          handlePaletteSelect(slug);
+        }}
+        onClose={() => setPaletteOpen(false)}
+      />
     </div>
   );
 }

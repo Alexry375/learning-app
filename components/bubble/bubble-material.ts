@@ -14,6 +14,18 @@ export interface BubbleOptions {
   wobbleFreq?: number;
   /** breathing rate of the pulse, in cycles per second */
   pulseRate?: number;
+  /**
+   * [0..1] — multiplicateur de l'iridescence (défaut 1.0).
+   * Utilisé dans le graphe pour réduire les bandes brutales à incidence rasante
+   * (GPU réel cramait avec iridescence=1.0 + transmission). Le proto standalone
+   * garde le défaut.
+   */
+  iridescenceAmp?: number;
+  /**
+   * [0..1.5] — multiplicateur de envMapIntensity (défaut 1.0).
+   * Idem : réduit les hot spots de reflets sur les bulles dans le graphe.
+   */
+  envMapIntensityScale?: number;
 }
 
 export interface BubbleMeshOptions extends BubbleOptions {
@@ -42,6 +54,8 @@ export function createBubbleMaterial(opts: BubbleOptions = {}): BubbleMaterial {
     wobbleAmp = 0.08,
     wobbleFreq = 1.8,
     pulseRate = 0.1,
+    iridescenceAmp = 1.0,
+    envMapIntensityScale = 1.0,
   } = opts;
 
   const mat = new THREE.MeshPhysicalMaterial({
@@ -53,12 +67,12 @@ export function createBubbleMaterial(opts: BubbleOptions = {}): BubbleMaterial {
     ior: 1.5,
     attenuationDistance: 1.8,
     attenuationColor: new THREE.Color("#c8d0ff"),
-    iridescence: 1.0,
+    iridescence: 1.0 * iridescenceAmp,
     iridescenceIOR: 1.4,
     iridescenceThicknessRange: [180, 700],
     clearcoat: 1.0,
     clearcoatRoughness: 0.06,
-    envMapIntensity: 1.2,
+    envMapIntensity: 1.2 * envMapIntensityScale,
   }) as BubbleMaterial;
 
   mat.userData.uTime = { value: 0 };
