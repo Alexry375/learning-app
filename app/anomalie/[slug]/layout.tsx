@@ -12,14 +12,14 @@ export default function AnomalieLayout({
   // On garde ici juste l'envelope visuelle.
   return (
     <div data-anomalie="001" className="min-h-screen relative">
-      {/* Bouton sortie discret en haut */}
+      {/* Back-link discret vers le graphe (route racine /) */}
       <Link
         href="/"
         prefetch={false}
         className="fixed top-3 right-4 z-[80] text-[0.62rem] tracking-classified px-3 py-1 border border-[color:var(--ink-paper-dim)] hover:border-[color:var(--amber)] hover:text-[color:var(--amber)] transition-colors"
         style={{ color: "var(--ink-paper-dim)", background: "var(--paper)" }}
       >
-        ‹ SORTIR&nbsp;DU&nbsp;DOSSIER
+        ←&nbsp;RETOUR&nbsp;AU&nbsp;GRAPHE
       </Link>
       {children}
     </div>

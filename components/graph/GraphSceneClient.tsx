@@ -12,15 +12,29 @@
  *
  * Le rendu des nodes (la bulle elle-même) reste sous notre contrôle total via
  * `createBubbleMesh` du module bubble/.
+ *
+ * Comportement click :
+ *   1) snapshot de la position courante de la caméra et de la bulle cible ;
+ *   2) anim de ~1s easeInOutCubic vers (bullePos + dir * 3*radius) ;
+ *   3) OrbitControls désactivés pendant l'anim, clicks ignorés ;
+ *   4) à la fin de l'anim, router.push('/anomalie/<slug>') — la transition est
+ *      atomique avec la fin du fly (pas de saut visible).
  */
 
+import * as React from "react";
 import { useCallback, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import * as THREE from "three";
-import { Canvas, useFrame } from "@react-three/fiber";
+import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import { OrbitControls } from "@react-three/drei";
 import { EffectComposer, Bloom } from "@react-three/postprocessing";
-import R3fForceGraph from "r3f-forcegraph";
+import R3fForceGraphBase from "r3f-forcegraph";
+
+// r3f-forcegraph hérite de props (nodeLabel, enableNodeDrag, …) que ses
+// types .d.ts n'exposent pas. On élargit localement le composant sans
+// changer son comportement runtime.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const R3fForceGraph = R3fForceGraphBase as unknown as React.FC<any>;
 import {
   createBubbleMesh,
   updateBubbleMaterial,
@@ -36,11 +50,35 @@ type GraphNode = {
   label: string;
   domain?: string;
   placeholder?: boolean;
+  // r3f-forcegraph injecte x/y/z à chaque tick (positions simulées)
+  x?: number;
+  y?: number;
+  z?: number;
 };
 type GraphLink = { source: string; target: string };
 type GraphData = { nodes: GraphNode[]; links: GraphLink[] };
 
 const BUBBLE_RADIUS = 14;
+const FLY_DURATION_S = 1.0;
+const FLY_DISTANCE_FACTOR = 3; // caméra à 3× radius de la bulle
+
+/** easeInOutCubic — t ∈ [0, 1] */
+function easeInOutCubic(t: number): number {
+  return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
+}
+
+/**
+ * Snapshot des positions cibles capturé au moment du click.
+ * Plus simple et plus cinématique que suivre un node qui bouge.
+ */
+type FlySnapshot = {
+  slug: string;
+  fromPos: THREE.Vector3;
+  toPos: THREE.Vector3;
+  fromLookAt: THREE.Vector3;
+  toLookAt: THREE.Vector3;
+  startTime: number; // sera initialisé au premier frame d'anim
+};
 
 function buildGraphData(): GraphData {
   const nodes: GraphNode[] = ANOMALIES.map((a) => ({
@@ -73,15 +111,25 @@ function GraphContent({
   graphData,
   onNodeHover,
   onNodeClick,
+  flyRef,
+  onFlyComplete,
+  orbitTargetRef,
+  isFlying,
 }: {
   graphData: GraphData;
   onNodeHover: (node: GraphNode | null) => void;
   onNodeClick: (node: GraphNode) => void;
+  flyRef: React.MutableRefObject<FlySnapshot | null>;
+  onFlyComplete: (slug: string) => void;
+  orbitTargetRef: React.MutableRefObject<THREE.Vector3>;
+  isFlying: boolean;
 }) {
   // any-typed ref — r3f-forcegraph's TS types don't expose tickFrame() cleanly
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const fgRef = useRef<any>(null);
   const materialsRef = useRef<BubbleMaterial[]>([]);
+  const camera = useThree((s) => s.camera);
+  const flyEndFiredRef = useRef<string | null>(null);
 
   const nodeThreeObject = useCallback((node: object) => {
     const n = node as GraphNode;
@@ -105,6 +153,37 @@ function GraphContent({
     for (const mat of materialsRef.current) {
       updateBubbleMaterial(mat, dt, t);
     }
+
+    // === Camera fly-to (snapshot at click time) ===
+    const fly = flyRef.current;
+    if (fly) {
+      // initialise startTime au tout premier frame du fly
+      if (fly.startTime < 0) {
+        fly.startTime = t;
+      }
+      const elapsed = t - fly.startTime;
+      const raw = Math.min(elapsed / FLY_DURATION_S, 1);
+      const k = easeInOutCubic(raw);
+
+      // Interpolation position + lookAt
+      camera.position.lerpVectors(fly.fromPos, fly.toPos, k);
+      const currentLook = new THREE.Vector3().lerpVectors(
+        fly.fromLookAt,
+        fly.toLookAt,
+        k,
+      );
+      camera.lookAt(currentLook);
+      // Mémorise le lookAt courant pour qu'un prochain click capture le bon
+      // `fromLookAt` (utile uniquement si on relance un fly sans avoir
+      // démonté la scène — pas le cas normal puisqu'on navigue).
+      orbitTargetRef.current.copy(currentLook);
+
+      if (raw >= 1 && flyEndFiredRef.current !== fly.slug) {
+        // Fire-once guard : router.push doit être atomique avec fin de fly.
+        flyEndFiredRef.current = fly.slug;
+        onFlyComplete(fly.slug);
+      }
+    }
   });
 
   return (
@@ -118,9 +197,11 @@ function GraphContent({
       linkOpacity={0.18}
       linkWidth={0.4}
       nodeOpacity={1}
-      enableNodeDrag
-      onNodeHover={(node) => onNodeHover((node as GraphNode) ?? null)}
-      onNodeClick={(node) => onNodeClick(node as GraphNode)}
+      enableNodeDrag={!isFlying}
+      onNodeHover={(node: object | null) =>
+        onNodeHover((node as GraphNode | null) ?? null)
+      }
+      onNodeClick={(node: object) => onNodeClick(node as GraphNode)}
     />
   );
 }
@@ -129,13 +210,60 @@ export default function GraphSceneClient() {
   const router = useRouter();
   const graphData = useMemo(buildGraphData, []);
   const [hoveredNode, setHoveredNode] = useState<GraphNode | null>(null);
+  const [isFlying, setIsFlying] = useState(false);
+  // Ref source de vérité pour l'anim (lue à chaque frame, n'a pas besoin de re-render)
+  const flyRef = useRef<FlySnapshot | null>(null);
+  // Cible courante d'OrbitControls (mutée pendant le fly pour rester cohérent).
+  const orbitTargetRef = useRef<THREE.Vector3>(new THREE.Vector3(0, 0, 0));
+  // Ref de la caméra exposée par le Canvas (peuplée via onCreated).
+  const cameraRef = useRef<THREE.Camera | null>(null);
 
-  const handleNodeClick = useCallback(
-    (node: GraphNode) => {
-      if (node.placeholder) return;
-      // Pour l'instant : navigation directe vers la route anomalie existante.
-      // À iterer : zoom caméra cinématique pré-navigation.
-      router.push(`/anomalie/${node.id}`);
+  const handleNodeClick = useCallback((node: GraphNode) => {
+    if (node.placeholder) return;
+    // Ignore clicks pendant le fly (la spec exige un comportement défini :
+    // re-cliquer une autre bulle pendant l'anim est ignoré).
+    if (flyRef.current !== null) return;
+
+    const camera = cameraRef.current;
+    if (!camera) return;
+
+    // Snapshot des positions au moment du click (positions de node mises à
+    // jour à chaque tick du force-graph par vasturiano, donc x/y/z dispo).
+    const nx = node.x ?? 0;
+    const ny = node.y ?? 0;
+    const nz = node.z ?? 0;
+    const nodePos = new THREE.Vector3(nx, ny, nz);
+
+    // Direction depuis la bulle vers la caméra actuelle (on garde l'angle de
+    // vue de l'utilisateur, on se rapproche juste).
+    const dir = new THREE.Vector3().subVectors(camera.position, nodePos);
+    if (dir.lengthSq() < 1e-6) {
+      // edge case : caméra exactement sur la bulle (improbable mais safe)
+      dir.set(0, 0, 1);
+    }
+    dir.normalize();
+
+    const targetPos = new THREE.Vector3()
+      .copy(nodePos)
+      .addScaledVector(dir, BUBBLE_RADIUS * FLY_DISTANCE_FACTOR);
+
+    flyRef.current = {
+      slug: node.id,
+      fromPos: camera.position.clone(),
+      toPos: targetPos,
+      fromLookAt: orbitTargetRef.current.clone(),
+      toLookAt: nodePos.clone(),
+      startTime: -1, // sera fixé au premier frame du fly
+    };
+    setIsFlying(true);
+  }, []);
+
+  const handleFlyComplete = useCallback(
+    (slug: string) => {
+      // Atomique : on push immédiatement à la fin du fly.
+      // On ne reset PAS flyRef ici (la caméra reste à sa position finale,
+      // la nav prend le relais — pas de saut visible).
+      router.push(`/anomalie/${slug}`);
     },
     [router],
   );
@@ -146,13 +274,21 @@ export default function GraphSceneClient() {
         position: "fixed",
         inset: 0,
         background: "#050609",
-        cursor: hoveredNode && !hoveredNode.placeholder ? "pointer" : "grab",
+        cursor:
+          hoveredNode && !hoveredNode.placeholder && !isFlying
+            ? "pointer"
+            : isFlying
+              ? "wait"
+              : "grab",
       }}
     >
       <Canvas
         camera={{ position: [0, 0, 220], fov: 38 }}
         dpr={[1, 2]}
         gl={{ antialias: true, toneMappingExposure: 0.9 }}
+        onCreated={({ camera }) => {
+          cameraRef.current = camera;
+        }}
       >
         <Backdrop />
         <ProceduralEnvironment />
@@ -184,9 +320,14 @@ export default function GraphSceneClient() {
           graphData={graphData}
           onNodeHover={setHoveredNode}
           onNodeClick={handleNodeClick}
+          flyRef={flyRef}
+          onFlyComplete={handleFlyComplete}
+          orbitTargetRef={orbitTargetRef}
+          isFlying={isFlying}
         />
 
         <OrbitControls
+          enabled={!isFlying}
           enableDamping
           dampingFactor={0.08}
           enablePan={false}
@@ -226,7 +367,7 @@ export default function GraphSceneClient() {
         </div>
       </div>
 
-      {hoveredNode && !hoveredNode.placeholder && (
+      {hoveredNode && !hoveredNode.placeholder && !isFlying && (
         <div
           style={{
             position: "fixed",

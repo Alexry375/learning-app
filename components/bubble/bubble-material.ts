@@ -130,7 +130,7 @@ export function createBubbleMesh(opts: BubbleMeshOptions = {}): THREE.Mesh {
   const mat = createBubbleMaterial(opts);
   const mesh = new THREE.Mesh(geom, mat);
   // expose the bubble material on the mesh for convenient time-driving
-  (mesh as THREE.Mesh & { bubbleMaterial: BubbleMaterial }).bubbleMaterial = mat;
+  (mesh as unknown as THREE.Mesh & { bubbleMaterial: BubbleMaterial }).bubbleMaterial = mat;
   return mesh;
 }
 

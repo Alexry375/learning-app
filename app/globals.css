@@ -27,13 +27,6 @@
   --amber: #d4a548;
   --amber-deep: #a07920;
   --rust: #8b3a1f;
-
-  /* Anomalie #002 — La Calibration (cyan clinique) */
-  --calib-void: #04060c;
-  --calib-cyan: #5eead4;
-  --calib-cyan-dim: #155e6b;
-  --calib-white: #f0fdff;
-  --calib-grid: #0a3540;
 }
 
 @theme inline {
@@ -358,14 +351,6 @@ html, body {
   font-family: var(--font-serif);
   line-height: 1.7;
   font-size: 1.04rem;
-}
-
-/* ===========================================================
-   Anomalie #002 — feuille clinique
-   =========================================================== */
-[data-anomalie="002"] {
-  background: var(--calib-void);
-  color: var(--calib-white);
 }
 
 /* ===========================================================
