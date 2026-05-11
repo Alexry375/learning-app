@@ -1,26 +1,24 @@
-import Link from "next/link";
 import "../../globals.css";
+import { BackToHub } from "@/components/anomalie-003/BackToHub";
 
-export default function AnomalieLayout({
+export default async function AnomalieLayout({
   children,
   params,
 }: {
   children: React.ReactNode;
   params: Promise<{ slug: string }>;
 }) {
-  // params est une Promise dans Next.js 16 ; on lit côté client via children.
-  // On garde ici juste l'envelope visuelle.
+  const { slug } = await params;
+  // Map slug → code data-anomalie pour activer la palette CSS dédiée.
+  const code = slug.startsWith("003")
+    ? "003"
+    : slug.startsWith("001")
+      ? "001"
+      : "default";
+
   return (
-    <div data-anomalie="001" className="min-h-screen relative">
-      {/* Back-link discret vers le graphe (route racine /) */}
-      <Link
-        href="/"
-        prefetch={false}
-        className="fixed top-3 right-4 z-[80] text-[0.62rem] tracking-classified px-3 py-1 border border-[color:var(--ink-paper-dim)] hover:border-[color:var(--amber)] hover:text-[color:var(--amber)] transition-colors"
-        style={{ color: "var(--ink-paper-dim)", background: "var(--paper)" }}
-      >
-        ←&nbsp;RETOUR&nbsp;AU&nbsp;GRAPHE
-      </Link>
+    <div data-anomalie={code} className="min-h-screen relative">
+      <BackToHub variant={code} />
       {children}
     </div>
   );
