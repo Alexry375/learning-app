@@ -14,7 +14,8 @@
  * `createBubbleMesh` du module bubble/.
  */
 
-import { useCallback, useMemo, useRef } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import * as THREE from "three";
 import { Canvas, useFrame } from "@react-three/fiber";
 import { OrbitControls } from "@react-three/drei";
@@ -68,7 +69,15 @@ function buildGraphData(): GraphData {
   return { nodes, links };
 }
 
-function GraphContent({ graphData }: { graphData: GraphData }) {
+function GraphContent({
+  graphData,
+  onNodeHover,
+  onNodeClick,
+}: {
+  graphData: GraphData;
+  onNodeHover: (node: GraphNode | null) => void;
+  onNodeClick: (node: GraphNode) => void;
+}) {
   // any-typed ref — r3f-forcegraph's TS types don't expose tickFrame() cleanly
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const fgRef = useRef<any>(null);
@@ -76,9 +85,7 @@ function GraphContent({ graphData }: { graphData: GraphData }) {
 
   const nodeThreeObject = useCallback((node: object) => {
     const n = node as GraphNode;
-    const color = n.placeholder
-      ? "#2a2f3d"
-      : colorFromSlug(n.id);
+    const color = n.placeholder ? "#2a2f3d" : colorFromSlug(n.id);
     const mesh = createBubbleMesh({
       color,
       radius: BUBBLE_RADIUS,
@@ -106,18 +113,32 @@ function GraphContent({ graphData }: { graphData: GraphData }) {
       graphData={graphData}
       nodeThreeObject={nodeThreeObject}
       nodeRelSize={BUBBLE_RADIUS}
+      nodeLabel="label"
       linkColor={() => "#7a96d6"}
       linkOpacity={0.18}
       linkWidth={0.4}
-      // disable default sphere rendering since we return our own object
       nodeOpacity={1}
       enableNodeDrag
+      onNodeHover={(node) => onNodeHover((node as GraphNode) ?? null)}
+      onNodeClick={(node) => onNodeClick(node as GraphNode)}
     />
   );
 }
 
 export default function GraphSceneClient() {
+  const router = useRouter();
   const graphData = useMemo(buildGraphData, []);
+  const [hoveredNode, setHoveredNode] = useState<GraphNode | null>(null);
+
+  const handleNodeClick = useCallback(
+    (node: GraphNode) => {
+      if (node.placeholder) return;
+      // Pour l'instant : navigation directe vers la route anomalie existante.
+      // À iterer : zoom caméra cinématique pré-navigation.
+      router.push(`/anomalie/${node.id}`);
+    },
+    [router],
+  );
 
   return (
     <div
@@ -125,7 +146,7 @@ export default function GraphSceneClient() {
         position: "fixed",
         inset: 0,
         background: "#050609",
-        cursor: "grab",
+        cursor: hoveredNode && !hoveredNode.placeholder ? "pointer" : "grab",
       }}
     >
       <Canvas
@@ -159,7 +180,11 @@ export default function GraphSceneClient() {
           color="#ffaa66"
         />
 
-        <GraphContent graphData={graphData} />
+        <GraphContent
+          graphData={graphData}
+          onNodeHover={setHoveredNode}
+          onNodeClick={handleNodeClick}
+        />
 
         <OrbitControls
           enableDamping
@@ -200,6 +225,51 @@ export default function GraphSceneClient() {
           {ANOMALIES.length} anomalie{ANOMALIES.length > 1 ? "s" : ""} · r3f-forcegraph
         </div>
       </div>
+
+      {hoveredNode && !hoveredNode.placeholder && (
+        <div
+          style={{
+            position: "fixed",
+            bottom: 24,
+            right: 32,
+            maxWidth: 360,
+            padding: "16px 20px",
+            background: "rgba(8, 11, 20, 0.78)",
+            border: "1px solid rgba(120, 170, 255, 0.35)",
+            borderRadius: 4,
+            fontFamily: "ui-monospace, monospace",
+            color: "rgba(220, 230, 245, 0.9)",
+            backdropFilter: "blur(6px)",
+            pointerEvents: "none",
+          }}
+        >
+          <div
+            style={{
+              fontSize: 10,
+              letterSpacing: "0.22em",
+              textTransform: "uppercase",
+              color: "rgba(120, 170, 255, 0.9)",
+              marginBottom: 6,
+            }}
+          >
+            {hoveredNode.domain ?? "anomalie"}
+          </div>
+          <div style={{ fontSize: 14, marginBottom: 4 }}>
+            {hoveredNode.label}
+          </div>
+          <div
+            style={{
+              fontSize: 10,
+              letterSpacing: "0.18em",
+              textTransform: "uppercase",
+              color: "rgba(180, 195, 215, 0.5)",
+            }}
+          >
+            click pour ouvrir
+          </div>
+        </div>
+      )}
+
       <div
         style={{
           position: "fixed",
@@ -213,7 +283,7 @@ export default function GraphSceneClient() {
           pointerEvents: "none",
         }}
       >
-        drag · scroll · drag node
+        drag · scroll · click bulle pour ouvrir
       </div>
     </div>
   );
