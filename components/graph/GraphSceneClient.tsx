@@ -88,14 +88,19 @@ type GraphData = { nodes: GraphNode[]; links: GraphLink[] };
 
 const BUBBLE_RADIUS = 14;
 const FLY_DURATION_S = 1.0;
-const FLY_DISTANCE_FACTOR = 3; // caméra à 3× radius de la bulle
-// NDC x cible pour la bulle après le fly-in. -0.5 = quart gauche de l'écran
+const FLY_DISTANCE_FACTOR = 3; // caméra à 3× radius de la bulle (initial — non utilisé après l'itération [23:38])
+// NDC x cible pour la bulle après le fly-in. -0.62 = ~19% du bord gauche
 // (centre = 0, bord gauche = -1). Le panneau matière occupe ~40% à droite
 // (clamp 420-580px sur largeur typique), donc la zone visible utile va de
-// NDC ≈ -1 à ≈ +0.2. Cibler -0.5 met la bulle au milieu de cette zone.
-// (Tâche A — remplace la constante SCREEN_LEFT_OFFSET = 1.4 * R = 19.6
-//  qui mettait la bulle à NDC ≈ -1.39 sur 1440×900 → ~40% hors-écran.)
-const TARGET_NDC_X = -0.5;
+// NDC ≈ -1 à ≈ +0.2. Cibler -0.62 colle la bulle franchement à gauche,
+// avec encore une marge propre vs bord (-1) pour ne pas la coller.
+// (Itération [23:38] Alexis : "que les bulles prennent encore un peu plus
+// de place sur la partie gauche".)
+const TARGET_NDC_X = -0.62;
+// Distance caméra → bulle, exprimée en multiples de BUBBLE_RADIUS. Plus
+// petit = plus zoomé. 2.6 (vs 3.0 initial) zoome ~15% sur la bulle après
+// le fly-in pour qu'elle prenne plus de place sur la moitié gauche.
+const FLY_DISTANCE_FACTOR_TARGET = 2.6;
 // Fallback offset si on n'a pas accès au viewport au moment du fly (très
 // improbable : `useThree` rend `size` toujours défini). Cale-toi sur l'ancienne
 // constante pour ne pas casser de manière subtile.
@@ -393,7 +398,7 @@ export default function GraphSceneClient() {
 
       const toPos = new THREE.Vector3()
         .copy(nodePos)
-        .addScaledVector(dir, BUBBLE_RADIUS * FLY_DISTANCE_FACTOR)
+        .addScaledVector(dir, BUBBLE_RADIUS * FLY_DISTANCE_FACTOR_TARGET)
         .addScaledVector(right, screenLeftOffset);
 
       // lookAt = centre bulle (pas l'origine, sinon la bulle n'apparaît pas
@@ -426,7 +431,7 @@ export default function GraphSceneClient() {
       viewportWidth: number,
       viewportHeight: number,
     ): number => {
-      const camDistance = BUBBLE_RADIUS * FLY_DISTANCE_FACTOR;
+      const camDistance = BUBBLE_RADIUS * FLY_DISTANCE_FACTOR_TARGET;
       // Récupère le fov vertical en degrés depuis la PerspectiveCamera.
       // Fallback à 38° (valeur du Canvas) si la caméra n'a pas de fov.
       const persp = camera as THREE.PerspectiveCamera;
